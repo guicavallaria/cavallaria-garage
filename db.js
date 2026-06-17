@@ -111,6 +111,16 @@ const seedMecanicos = [
 const insertMecanico = db.prepare('INSERT OR IGNORE INTO mecanicos (nome, cor, ordem) VALUES (?, ?, ?)');
 for (const [nome, cor, ordem] of seedMecanicos) insertMecanico.run(nome, cor, ordem);
 
+// Corrige duplicata de Estética causada por encoding Latin-1 vs UTF-8
+const esteticaCorreta = db.prepare("SELECT id FROM mecanicos WHERE nome = 'Estética' AND cor = '#C2185B'").get();
+if (esteticaCorreta) {
+  const duplicatas = db.prepare("SELECT id FROM mecanicos WHERE cor = '#C2185B' AND id != ?").all(esteticaCorreta.id);
+  for (const dup of duplicatas) {
+    db.prepare("UPDATE agendamentos SET mecanico_id = ? WHERE mecanico_id = ?").run(esteticaCorreta.id, dup.id);
+    db.prepare("DELETE FROM mecanicos WHERE id = ?").run(dup.id);
+  }
+}
+
 // Garante que Caio/Estética fiquem nas últimas colunas mesmo que já existissem com ordem antiga
 const fixarOrdemFinal = db.prepare("UPDATE mecanicos SET ordem = 1 WHERE nome IN ('Caio', 'Estética') AND ordem != 1");
 fixarOrdemFinal.run();
