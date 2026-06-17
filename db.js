@@ -64,6 +64,9 @@ if (!colunasAgendamentos.includes('telefone')) {
 if (!colunasAgendamentos.includes('lembrete_enviado_em')) {
   db.exec('ALTER TABLE agendamentos ADD COLUMN lembrete_enviado_em TEXT');
 }
+if (!colunasAgendamentos.includes('nome_cliente')) {
+  db.exec('ALTER TABLE agendamentos ADD COLUMN nome_cliente TEXT');
+}
 
 // Remove CHECK constraint em categoria que causa problema de encoding
 const agInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agendamentos'").get();
@@ -86,9 +89,10 @@ if (agInfo && agInfo.sql && agInfo.sql.includes('CHECK')) {
       hora_conclusao TEXT,
       hora_inicio_planejada TEXT,
       telefone TEXT,
-      lembrete_enviado_em TEXT
+      lembrete_enviado_em TEXT,
+      nome_cliente TEXT
     );
-    INSERT INTO agendamentos_new SELECT id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, criado_em, concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em FROM agendamentos;
+    INSERT INTO agendamentos_new SELECT id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, criado_em, concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, nome_cliente FROM agendamentos;
     DROP TABLE agendamentos;
     ALTER TABLE agendamentos_new RENAME TO agendamentos;
   `);
@@ -112,7 +116,7 @@ const fixarOrdemFinal = db.prepare("UPDATE mecanicos SET ordem = 1 WHERE nome IN
 fixarOrdemFinal.run();
 
 const seedConfig = {
-  limite_horas_dia: '8',
+  limite_horas_dia: '8.5',
   hora_abertura: '08:00',
   hora_fechamento: '18:00',
   pausa_almoco_inicio: '12:00',
@@ -120,5 +124,7 @@ const seedConfig = {
 };
 const insertConfig = db.prepare('INSERT OR IGNORE INTO config (chave, valor) VALUES (?, ?)');
 for (const [chave, valor] of Object.entries(seedConfig)) insertConfig.run(chave, valor);
+// Atualiza o limite se ainda estiver em '8'
+db.prepare("UPDATE config SET valor = '8.5' WHERE chave = 'limite_horas_dia' AND valor = '8'").run();
 
 module.exports = db;

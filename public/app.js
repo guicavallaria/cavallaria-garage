@@ -401,6 +401,7 @@ function resetBtnExcluir() {
 
 function resetAvisoPreSalvar() {
   avisosConfirmados = false;
+  dataEspecialConfirmada = false;
   document.getElementById('avisoPreSalvar').classList.add('hidden');
 }
 
@@ -433,6 +434,7 @@ function abrirModalEdicao(a) {
   document.getElementById('avisoConflito').classList.add('hidden');
   document.getElementById('campoMecanico').value = a.mecanico_id;
   document.getElementById('campoCategoria').value = a.categoria;
+  document.getElementById('campoNomeCliente').value = a.nome_cliente || '';
   document.getElementById('campoVeiculo').value = a.veiculo;
   document.getElementById('campoTelefone').value = a.telefone || '';
   document.getElementById('campoOS').value = a.numero_os || '';
@@ -500,6 +502,7 @@ function coletarPayload() {
   return {
     mecanico_id: Number(document.getElementById('campoMecanico').value),
     categoria: document.getElementById('campoCategoria').value,
+    nome_cliente: document.getElementById('campoNomeCliente').value || null,
     veiculo: document.getElementById('campoVeiculo').value,
     telefone: document.getElementById('campoTelefone').value || null,
     numero_os: document.getElementById('campoOS').value,
@@ -526,9 +529,24 @@ document.getElementById('btnAvisoConfirmar').addEventListener('click', async () 
   await salvarAgendamento(coletarPayload());
 });
 
+let dataEspecialConfirmada = false;
+
 formAgendamento.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const payload = coletarPayload();
+
+  if (!dataEspecialConfirmada) {
+    const info = await fetch(`/api/data-info?data=${payload.data}`).then((r) => r.json());
+    if (info.especial) {
+      const { tipo, nome } = info.especial;
+      const labels = { sabado: 'Sábado', domingo: 'Domingo', feriado: 'Feriado', facultativo: 'Ponto facultativo' };
+      const label = labels[tipo] || tipo;
+      const msg = nome ? `${label}: ${nome}` : label;
+      const ok = confirm(`⚠️ ${msg}\n\nDeseja prosseguir com o agendamento mesmo assim?`);
+      if (!ok) return;
+    }
+    dataEspecialConfirmada = true;
+  }
 
   if (!avisosConfirmados) {
     const idAtual = document.getElementById('agendamentoId').value;
@@ -710,6 +728,7 @@ function abrirModalInfo(a, mec) {
   const [y, m, d] = a.data.split('-');
   const dataFormatada = `${d}/${m}/${y}`;
   const telefoneDisplay = a.telefone ? `+55(${a.telefone})` : '—';
+  const nomeClienteDisplay = a.nome_cliente || '—';
 
   let statusHtml = '';
   if (a.concluido) {
@@ -725,6 +744,7 @@ function abrirModalInfo(a, mec) {
     <div class="info-grid">
       <div class="info-row"><span class="info-label">Profissional</span><span class="info-value">${mec.nome}</span></div>
       <div class="info-row"><span class="info-label">Categoria</span><span class="info-value"><span class="b-categoria ${CATEGORIA_CLASSE[a.categoria] || ''}">${a.categoria}</span></span></div>
+      <div class="info-row"><span class="info-label">Cliente</span><span class="info-value">${nomeClienteDisplay}</span></div>
       <div class="info-row"><span class="info-label">Veículo</span><span class="info-value">${a.veiculo}</span></div>
       <div class="info-row"><span class="info-label">Telefone</span><span class="info-value">${telefoneDisplay}</span></div>
       <div class="info-row"><span class="info-label">OS</span><span class="info-value">${a.numero_os || '—'}</span></div>
@@ -904,7 +924,7 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
         <div class="lembrete-card ${jaEnviado ? 'lembrete-card-enviado' : ''}">
           <div class="lembrete-card-header">
             <span class="lembrete-telefone">${tel}</span>
-            <span class="lembrete-veiculo">${a.veiculo}${a.numero_os ? ' · OS ' + a.numero_os : ''}</span>
+            <span class="lembrete-veiculo">${a.nome_cliente ? a.nome_cliente + ' · ' : ''}${a.veiculo}${a.numero_os ? ' · OS ' + a.numero_os : ''}</span>
             <span class="lembrete-hora">${a.hora_inicio}</span>
           </div>
           ${jaEnviado ? `<div class="lembrete-enviado-badge">✅ Lembrete enviado em ${enviadoEm} <button type="button" class="btn-desfazer-lembrete" data-id="${a.id}">Desfazer</button></div>` : ''}

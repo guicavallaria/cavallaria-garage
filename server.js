@@ -127,15 +127,15 @@ function findConflitos({ mecanico_id, data, hora_inicio, duracao_horas, excludeI
 
 function criarRepeticoes(dados, nDias) {
   const insert = db.prepare(
-    `INSERT INTO agendamentos (mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, hora_inicio_planejada, duracao_horas, observacoes, telefone)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO agendamentos (mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, hora_inicio_planejada, duracao_horas, observacoes, telefone, nome_cliente)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const repeticoes = [];
   for (let i = 1; i <= nDias; i++) {
     const dataRep = somarDias(dados.data, i);
     const info = insert.run(
       dados.mecanico_id, dados.veiculo, dados.numero_os || null, dados.servico, dados.categoria,
-      dataRep, dados.hora_inicio, dados.hora_inicio, dados.duracao_horas, dados.observacoes || null, dados.telefone || null
+      dataRep, dados.hora_inicio, dados.hora_inicio, dados.duracao_horas, dados.observacoes || null, dados.telefone || null, dados.nome_cliente || null
     );
     repeticoes.push({ id: info.lastInsertRowid, data: dataRep });
   }
@@ -218,7 +218,7 @@ app.get('/api/agendamentos', (req, res) => {
 });
 
 app.post('/api/agendamentos', (req, res) => {
-  const { mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, repetir_dias, telefone } = req.body;
+  const { mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, repetir_dias, telefone, nome_cliente } = req.body;
   if (!mecanico_id || !veiculo || !servico || !categoria || !data || !hora_inicio || !duracao_horas) {
     return res.status(400).json({
       erro: 'Campos obrigatórios: mecanico_id, veiculo, servico, categoria, data, hora_inicio, duracao_horas',
@@ -233,13 +233,13 @@ app.post('/api/agendamentos', (req, res) => {
   const conflitos = findConflitos({ mecanico_id, data, hora_inicio, duracao_horas });
 
   const insert = db.prepare(
-    `INSERT INTO agendamentos (mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, hora_inicio_planejada, duracao_horas, observacoes, telefone)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO agendamentos (mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, hora_inicio_planejada, duracao_horas, observacoes, telefone, nome_cliente)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  const info = insert.run(mecanico_id, veiculo, numero_os || null, servico, categoria, data, hora_inicio, hora_inicio, duracao_horas, observacoes || null, telefone || null);
+  const info = insert.run(mecanico_id, veiculo, numero_os || null, servico, categoria, data, hora_inicio, hora_inicio, duracao_horas, observacoes || null, telefone || null, nome_cliente || null);
 
   const repeticoes = criarRepeticoes(
-    { mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, telefone },
+    { mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, telefone, nome_cliente },
     Number(repetir_dias) || 0
   );
 
@@ -377,7 +377,7 @@ app.put('/api/agendamentos/:id', (req, res) => {
   });
 
   db.prepare(
-    `UPDATE agendamentos SET mecanico_id=?, veiculo=?, numero_os=?, servico=?, categoria=?, data=?, hora_inicio=?, hora_inicio_planejada=?, duracao_horas=?, observacoes=?, telefone=?
+    `UPDATE agendamentos SET mecanico_id=?, veiculo=?, numero_os=?, servico=?, categoria=?, data=?, hora_inicio=?, hora_inicio_planejada=?, duracao_horas=?, observacoes=?, telefone=?, nome_cliente=?
      WHERE id = ?`
   ).run(
     merged.mecanico_id,
@@ -391,6 +391,7 @@ app.put('/api/agendamentos/:id', (req, res) => {
     merged.duracao_horas,
     merged.observacoes,
     merged.telefone || null,
+    merged.nome_cliente || null,
     id
   );
 
@@ -713,10 +714,10 @@ app.post('/api/admin/importar', (req, res) => {
       const insertAg = db.prepare(`
         INSERT INTO agendamentos
         (id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas,
-         concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, observacoes, criado_em)
+         concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, observacoes, criado_em, nome_cliente)
         VALUES
         (@id, @mecanico_id, @veiculo, @numero_os, @servico, @categoria, @data, @hora_inicio, @duracao_horas,
-         @concluido, @hora_conclusao, @hora_inicio_planejada, @telefone, @lembrete_enviado_em, @observacoes, @criado_em)
+         @concluido, @hora_conclusao, @hora_inicio_planejada, @telefone, @lembrete_enviado_em, @observacoes, @criado_em, @nome_cliente)
       `);
       for (const m of mecanicos) insertMec.run({ ordem: 0, ...m });
       for (const a of agendamentos) insertAg.run({
