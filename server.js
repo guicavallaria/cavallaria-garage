@@ -699,30 +699,38 @@ app.get('/api/admin/exportar', (req, res) => {
 });
 
 app.post('/api/admin/importar', (req, res) => {
-  const { mecanicos, agendamentos } = req.body;
-  if (!mecanicos || !agendamentos) return res.status(400).json({ erro: 'Dados inválidos' });
+  try {
+    const { mecanicos, agendamentos } = req.body;
+    if (!mecanicos || !agendamentos) return res.status(400).json({ erro: 'Dados inválidos' });
 
-  const insertMec = db.prepare(`
-    INSERT OR REPLACE INTO mecanicos (id, nome, cor, ativo, ordem)
-    VALUES (@id, @nome, @cor, @ativo, @ordem)
-  `);
-  const insertAg = db.prepare(`
-    INSERT OR REPLACE INTO agendamentos
-    (id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas,
-     concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, observacoes)
-    VALUES
-    (@id, @mecanico_id, @veiculo, @numero_os, @servico, @categoria, @data, @hora_inicio, @duracao_horas,
-     @concluido, @hora_conclusao, @hora_inicio_planejada, @telefone, @lembrete_enviado_em, @observacoes)
-  `);
-
-  const run = db.transaction(() => {
-    for (const m of mecanicos) insertMec.run(m);
-    for (const a of agendamentos) insertAg.run({
-      observacoes: null, ...a,
+    db.exec('PRAGMA foreign_keys = OFF');
+    const run = db.transaction(() => {
+      db.exec('DELETE FROM agendamentos');
+      db.exec('DELETE FROM mecanicos');
+      const insertMec = db.prepare(
+        'INSERT INTO mecanicos (id, nome, cor, ativo, ordem) VALUES (@id, @nome, @cor, @ativo, @ordem)'
+      );
+      const insertAg = db.prepare(`
+        INSERT INTO agendamentos
+        (id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas,
+         concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, observacoes, criado_em)
+        VALUES
+        (@id, @mecanico_id, @veiculo, @numero_os, @servico, @categoria, @data, @hora_inicio, @duracao_horas,
+         @concluido, @hora_conclusao, @hora_inicio_planejada, @telefone, @lembrete_enviado_em, @observacoes, @criado_em)
+      `);
+      for (const m of mecanicos) insertMec.run({ ordem: 0, ...m });
+      for (const a of agendamentos) insertAg.run({
+        numero_os: null, hora_conclusao: null, hora_inicio_planejada: null,
+        telefone: null, lembrete_enviado_em: null, observacoes: null, criado_em: null, ...a,
+      });
     });
-  });
-  run();
-  res.json({ ok: true, mecanicos: mecanicos.length, agendamentos: agendamentos.length });
+    run();
+    db.exec('PRAGMA foreign_keys = ON');
+    res.json({ ok: true, mecanicos: mecanicos.length, agendamentos: agendamentos.length });
+  } catch (err) {
+    console.error('Importar erro:', err);
+    res.status(500).json({ erro: err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
