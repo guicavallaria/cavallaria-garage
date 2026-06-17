@@ -5,10 +5,17 @@ const fs = require('fs');
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 
 function limparLocks() {
-  const base = path.join(DATA_DIR, 'whatsapp-session', '.wwebjs_auth', 'session', 'Default');
-  ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
-    try { fs.unlinkSync(path.join(base, f)); } catch (_) {}
-  });
+  const LOCKS = new Set(['SingletonLock', 'SingletonCookie', 'SingletonSocket']);
+  function varrer(dir) {
+    try {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) varrer(full);
+        else if (LOCKS.has(e.name)) try { fs.unlinkSync(full); } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  varrer(path.join(DATA_DIR, 'whatsapp-session'));
 }
 
 let client = null;
