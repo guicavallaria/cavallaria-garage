@@ -20,7 +20,7 @@ db.exec(`
     veiculo TEXT NOT NULL,
     numero_os TEXT,
     servico TEXT NOT NULL,
-    categoria TEXT NOT NULL CHECK(categoria IN ('Diagnóstico','Revisão','Serviço Específico')),
+    categoria TEXT NOT NULL,
     data TEXT NOT NULL,
     hora_inicio TEXT NOT NULL,
     duracao_horas REAL NOT NULL DEFAULT 1,
@@ -63,6 +63,36 @@ if (!colunasAgendamentos.includes('telefone')) {
 }
 if (!colunasAgendamentos.includes('lembrete_enviado_em')) {
   db.exec('ALTER TABLE agendamentos ADD COLUMN lembrete_enviado_em TEXT');
+}
+
+// Remove CHECK constraint em categoria que causa problema de encoding
+const agInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agendamentos'").get();
+if (agInfo && agInfo.sql && agInfo.sql.includes('CHECK')) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agendamentos_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mecanico_id INTEGER NOT NULL REFERENCES mecanicos(id),
+      veiculo TEXT NOT NULL,
+      numero_os TEXT,
+      servico TEXT NOT NULL,
+      categoria TEXT NOT NULL,
+      data TEXT NOT NULL,
+      hora_inicio TEXT NOT NULL,
+      duracao_horas REAL NOT NULL DEFAULT 1,
+      observacoes TEXT,
+      criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      concluido INTEGER NOT NULL DEFAULT 0,
+      hora_conclusao TEXT,
+      hora_inicio_planejada TEXT,
+      telefone TEXT,
+      lembrete_enviado_em TEXT
+    );
+    INSERT INTO agendamentos_new SELECT id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas, observacoes, criado_em, concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em FROM agendamentos;
+    DROP TABLE agendamentos;
+    ALTER TABLE agendamentos_new RENAME TO agendamentos;
+  `);
+  db.exec('PRAGMA foreign_keys = ON');
 }
 
 const seedMecanicos = [
