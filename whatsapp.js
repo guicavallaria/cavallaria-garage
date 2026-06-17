@@ -1,7 +1,15 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const path = require('path');
+const fs = require('fs');
 const DATA_DIR = process.env.DATA_DIR || __dirname;
+
+function limparLocks() {
+  const base = path.join(DATA_DIR, 'whatsapp-session', '.wwebjs_auth', 'session', 'Default');
+  ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+    try { fs.unlinkSync(path.join(base, f)); } catch (_) {}
+  });
+}
 
 let client = null;
 let status = 'disconnected'; // 'disconnected' | 'qr' | 'connecting' | 'ready'
@@ -11,6 +19,8 @@ let inicializado = false;
 function inicializar() {
   if (inicializado) return;
   inicializado = true;
+
+  limparLocks();
 
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: path.join(DATA_DIR, 'whatsapp-session') }),
