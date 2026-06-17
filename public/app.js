@@ -271,7 +271,7 @@ function renderAgenda() {
             bloco.innerHTML = `
               <button type="button" class="btn-info" title="Ver informações">ℹ</button>
               <span class="b-categoria ${CATEGORIA_CLASSE[a.categoria] || ''}">${a.categoria}</span>
-              <div class="b-os">${a.numero_os ? 'OS ' + a.numero_os : ''}</div>
+              <div class="b-os">${[a.numero_os ? 'OS ' + a.numero_os : '', a.nome_cliente || ''].filter(Boolean).join(' · ')}</div>
               <div class="b-veiculo">${a.veiculo}</div>
               <div class="b-servico">${a.servico}</div>
               <div class="b-hora">${a.hora_inicio} – ${horaFimEstimada} (${a.duracao_horas}h${segmentos.length > 1 ? ', com pausa' : ''})</div>
