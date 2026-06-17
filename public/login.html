@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agendamento — Cavallaria Garage</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #1f2330;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 40px 36px;
+  width: 340px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.logo {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.logo h1 { font-size: 20px; color: #1f2330; }
+.logo p  { font-size: 13px; color: #888; margin-top: 4px; }
+label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 14px;
+}
+input[type="password"] {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid #d6d8e0;
+  border-radius: 6px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .15s;
+}
+input[type="password"]:focus { border-color: #185FA5; }
+button {
+  width: 100%;
+  padding: 11px;
+  background: #185FA5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background .15s;
+}
+button:hover { background: #14507f; }
+button:disabled { background: #aaa; cursor: not-allowed; }
+.erro {
+  color: #c0392b;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 12px;
+  min-height: 20px;
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <h1>🔧 Cavallaria Garage</h1>
+    <p>Sistema de Agendamento</p>
+  </div>
+  <form id="formLogin">
+    <label>Senha de acesso
+      <input type="password" id="senha" placeholder="Digite a senha" autofocus required />
+    </label>
+    <button type="submit" id="btnEntrar">Entrar</button>
+    <div class="erro" id="msgErro"></div>
+  </form>
+</div>
+<script>
+document.getElementById('formLogin').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = document.getElementById('btnEntrar');
+  const erro = document.getElementById('msgErro');
+  btn.disabled = true;
+  btn.textContent = 'Verificando…';
+  erro.textContent = '';
+  const resp = await fetch('/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senha: document.getElementById('senha').value }),
+  });
+  if (resp.ok) {
+    window.location.href = '/';
+  } else {
+    erro.textContent = 'Senha incorreta. Tente novamente.';
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+    document.getElementById('senha').select();
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+.env
+agendamentos.db
+agendamentos.db-shm
+agendamentos.db-wal
+whatsapp-session/
+*.log

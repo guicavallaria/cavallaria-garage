@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agendamento — Cavallaria Garage</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>🔧 Agendamento — Cavallaria Garage</h1>
+    <div class="date-nav">
+      <button id="btnPrev" class="btn-ghost">◀</button>
+      <input type="date" id="dataAtual" />
+      <button id="btnHoje" class="btn-ghost">Hoje</button>
+      <button id="btnNext" class="btn-ghost">▶</button>
+      <div id="dataAvisoChip" class="data-aviso-chip hidden"></div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btnWAStatus" class="btn-wa-status" title="Status do WhatsApp">
+        <span id="waStatusDot" class="wa-dot wa-dot-off"></span>
+        <span id="waStatusTxt">WhatsApp</span>
+      </button>
+      <button id="btnLembrete" class="btn-ghost" title="Lembrete de agendamento">🔔 Lembretes</button>
+      <button id="btnConfig" class="btn-ghost" title="Configurações">⚙️</button>
+      <button id="btnNovo" class="btn-primary">+ Novo agendamento</button>
+      <button id="btnLogout" class="btn-ghost" title="Sair">Sair</button>
+    </div>
+  </header>
+
+  <section id="capacidade" class="capacidade-bar"></section>
+
+  <main id="agenda" class="agenda"></main>
+
+  <!-- Modal de agendamento -->
+  <div id="modalAgendamento" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="modalTitulo">Novo agendamento</h2>
+      <form id="formAgendamento">
+        <input type="hidden" id="agendamentoId" />
+
+        <label>Profissional responsável
+          <select id="campoMecanico" required></select>
+        </label>
+
+        <label>Categoria
+          <select id="campoCategoria" required>
+            <option value="Diagnóstico">Diagnóstico</option>
+            <option value="Revisão">Revisão</option>
+            <option value="Serviço Específico">Serviço Específico</option>
+          </select>
+        </label>
+
+        <label>Veículo
+          <input type="text" id="campoVeiculo" placeholder="Placa / marca / modelo" required />
+        </label>
+
+        <label>Telefone do cliente
+          <input type="tel" id="campoTelefone" placeholder="Ex: 41 99999-9999" />
+        </label>
+
+        <label>Número da OS
+          <input type="text" id="campoOS" placeholder="Ex: 6516" />
+        </label>
+
+        <label>Serviço a realizar
+          <textarea id="campoServico" rows="2" placeholder="Descrição do serviço" required></textarea>
+        </label>
+
+        <div class="form-row">
+          <label>Data
+            <input type="date" id="campoData" required />
+          </label>
+          <label>Hora início
+            <input type="time" id="campoHora" required />
+          </label>
+          <label>Duração (h)
+            <input type="number" id="campoDuracao" step="0.5" min="0.5" required />
+          </label>
+        </div>
+
+        <button type="button" id="btnPuxarUltimo" class="btn-ghost btn-puxar hidden">⏩ Puxar para depois do último agendamento</button>
+
+        <label>Observações
+          <textarea id="campoObs" rows="2" placeholder="Opcional"></textarea>
+        </label>
+
+        <label id="campoRepetirWrapper">Repetir nos próximos quantos dias?
+          <input type="number" id="campoRepetir" min="0" step="1" value="0" />
+        </label>
+
+        <div id="avisoPreSalvar" class="aviso-pre-salvar hidden">
+          <div id="avisoPreSalvarMsg"></div>
+          <div class="aviso-pre-salvar-actions">
+            <button type="button" id="btnAvisoCancelar" class="btn-ghost">Cancelar</button>
+            <button type="button" id="btnAvisoConfirmar" class="btn-primary">Sim, continuar mesmo assim</button>
+          </div>
+        </div>
+
+        <div id="avisoConflito" class="aviso-conflito hidden"></div>
+
+        <div class="modal-actions">
+          <button type="button" id="btnExcluir" class="btn-danger hidden">Excluir</button>
+          <div class="spacer"></div>
+          <button type="button" id="btnCancelar" class="btn-ghost">Cancelar</button>
+          <button type="submit" class="btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal de configurações -->
+  <div id="modalConfig" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Configurações</h2>
+      <form id="formConfig">
+        <label>Horário de abertura
+          <input type="time" id="cfgAbertura" />
+        </label>
+        <label>Horário de fechamento
+          <input type="time" id="cfgFechamento" />
+        </label>
+        <label>Limite de horas por mecânico/dia
+          <input type="number" id="cfgLimite" step="0.5" min="1" />
+        </label>
+        <div class="form-row">
+          <label>Início da pausa de almoço
+            <input type="time" id="cfgAlmocoInicio" />
+          </label>
+          <label>Fim da pausa de almoço
+            <input type="time" id="cfgAlmocoFim" />
+          </label>
+        </div>
+
+        <hr />
+        <h3>Adicionar profissional</h3>
+        <div class="form-row">
+          <input type="text" id="novoMecanicoNome" placeholder="Nome do profissional" />
+          <input type="color" id="novoMecanicoCor" value="#5F5E5A" />
+          <button type="button" id="btnAddMecanico" class="btn-ghost">Adicionar</button>
+        </div>
+
+        <hr />
+        <h3>Férias e períodos indisponíveis</h3>
+        <label>Profissional
+          <select id="indispMecanico"></select>
+        </label>
+        <div class="form-row">
+          <label>De
+            <input type="date" id="indispInicio" />
+          </label>
+          <label>Até
+            <input type="date" id="indispFim" />
+          </label>
+        </div>
+        <div class="form-row">
+          <input type="text" id="indispMotivo" placeholder="Motivo (ex: Férias)" />
+          <button type="button" id="btnAddIndisp" class="btn-ghost">Adicionar</button>
+        </div>
+        <div id="listaIndisponibilidades" class="lista-indisponibilidades"></div>
+
+        <div class="modal-actions">
+          <div class="spacer"></div>
+          <button type="button" id="btnFecharConfig" class="btn-ghost">Fechar</button>
+          <button type="submit" class="btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal de adiantar agendamentos -->
+  <div id="modalAdiantar" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Adiantar próximos agendamentos?</h2>
+      <p id="msgAdiantar"></p>
+      <label class="checkbox-label"><input type="checkbox" id="chkAdiantarHoje" /> Adiantar os próximos agendamentos de hoje</label>
+      <label class="checkbox-label"><input type="checkbox" id="chkAdiantarAmanha" /> Adiantar também os agendamentos de amanhã</label>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="btnAdiantarPular" class="btn-ghost">Não, deixar como está</button>
+        <button type="button" id="btnAdiantarAplicar" class="btn-primary">Aplicar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal QR Code WhatsApp -->
+  <div id="modalQR" class="modal-overlay hidden">
+    <div class="modal modal-qr">
+      <h2>Conectar WhatsApp</h2>
+      <div id="qrInstructions">
+        <ol class="qr-steps">
+          <li>Abra o <strong>WhatsApp</strong> no celular</li>
+          <li>Toque em <strong>Dispositivos conectados</strong></li>
+          <li>Toque em <strong>Conectar dispositivo</strong></li>
+          <li>Aponte a câmera para o QR Code abaixo</li>
+        </ol>
+      </div>
+      <div id="qrImageArea" class="qr-image-area">
+        <div id="qrLoading" class="qr-loading">Aguardando QR Code…</div>
+        <img id="qrImage" class="hidden" alt="QR Code WhatsApp" />
+      </div>
+      <p id="qrStatusMsg" class="qr-status-msg"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnReconectarWA" class="btn-ghost">🔄 Reconectar</button>
+        <div class="spacer"></div>
+        <button type="button" id="btnFecharQR" class="btn-ghost">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de informações do agendamento -->
+  <div id="modalInfo" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Informações do Agendamento</h2>
+      <div id="infoContent"></div>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="btnFecharInfo" class="btn-ghost">Fechar</button>
+        <button type="button" id="btnEditarDoInfo" class="btn-primary">Editar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de lembretes WhatsApp -->
+  <div id="modalLembrete" class="modal-overlay hidden">
+    <div class="modal modal-lembrete">
+      <h2>🔔 Lembrete de Agendamento</h2>
+      <label>Data dos agendamentos
+        <input type="date" id="lembreteData" />
+      </label>
+      <button type="button" id="btnGerarLembretes" class="btn-primary" style="margin-top:10px;width:100%">Gerar lembretes</button>
+      <div id="lembreteResultado" style="margin-top:16px"></div>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="btnFecharLembrete" class="btn-ghost">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
