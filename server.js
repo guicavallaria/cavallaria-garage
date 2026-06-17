@@ -691,6 +691,40 @@ function getLanIp() {
   return candidatos.find(isPrivateIPv4) || candidatos[0] || 'localhost';
 }
 
+// ---------- Migração de dados ----------
+app.get('/api/admin/exportar', (req, res) => {
+  const mecanicos = db.prepare('SELECT * FROM mecanicos').all();
+  const agendamentos = db.prepare('SELECT * FROM agendamentos').all();
+  res.json({ mecanicos, agendamentos });
+});
+
+app.post('/api/admin/importar', (req, res) => {
+  const { mecanicos, agendamentos } = req.body;
+  if (!mecanicos || !agendamentos) return res.status(400).json({ erro: 'Dados inválidos' });
+
+  const insertMec = db.prepare(`
+    INSERT OR REPLACE INTO mecanicos (id, nome, cor, ativo, ordem)
+    VALUES (@id, @nome, @cor, @ativo, @ordem)
+  `);
+  const insertAg = db.prepare(`
+    INSERT OR REPLACE INTO agendamentos
+    (id, mecanico_id, veiculo, numero_os, servico, categoria, data, hora_inicio, duracao_horas,
+     concluido, hora_conclusao, hora_inicio_planejada, telefone, lembrete_enviado_em, observacoes)
+    VALUES
+    (@id, @mecanico_id, @veiculo, @numero_os, @servico, @categoria, @data, @hora_inicio, @duracao_horas,
+     @concluido, @hora_conclusao, @hora_inicio_planejada, @telefone, @lembrete_enviado_em, @observacoes)
+  `);
+
+  const run = db.transaction(() => {
+    for (const m of mecanicos) insertMec.run(m);
+    for (const a of agendamentos) insertAg.run({
+      observacoes: null, ...a,
+    });
+  });
+  run();
+  res.json({ ok: true, mecanicos: mecanicos.length, agendamentos: agendamentos.length });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando em:`);
