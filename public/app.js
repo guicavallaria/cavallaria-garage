@@ -262,7 +262,7 @@ function renderAgenda() {
                 const txt = diffPlano > 0 ? `▲ Antecipado ${diffPlano}min` : `▼ Atrasado ${Math.abs(diffPlano)}min`;
                 extra += `<div class="b-desvio-plano ${cls}">${txt}</div>`;
               }
-              extra += `<button type="button" class="btn-concluir">✓ Concluir</button>`;
+              extra += `<button type="button" class="btn-concluir" title="Concluir">✓</button>`;
             }
 
             let lembreteTag = '';
@@ -299,7 +299,7 @@ function renderAgenda() {
           if (btnConcluir) {
             btnConcluir.addEventListener('click', (ev) => {
               ev.stopPropagation();
-              marcarConcluido(a);
+              abrirPopupConcluir(a, btnConcluir);
             });
           }
           const btnDesfazer = bloco.querySelector('.btn-desfazer');
@@ -361,10 +361,69 @@ function somarDias(dataISO, n) {
 
 // ---------- Concluir agendamento / desfazer / adiantar próximos ----------
 let agendamentoConcluidoContexto = null;
+let popupConcluirAtual = null;
 
-async function marcarConcluido(a) {
+function fecharPopupConcluir() {
+  if (popupConcluirAtual) {
+    popupConcluirAtual.remove();
+    popupConcluirAtual = null;
+  }
+}
+
+function abrirPopupConcluir(a, btnRef) {
+  fecharPopupConcluir();
   const agora = new Date();
-  const horaConclusao = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+  const horaAgora = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+
+  const popup = document.createElement('div');
+  popup.className = 'popup-concluir';
+  popup.innerHTML = `
+    <button type="button" class="popup-concluir-agora">✓ Concluir agora · ${horaAgora}</button>
+    <div class="popup-concluir-sep">ou horário personalizado</div>
+    <div class="popup-concluir-custom">
+      <input type="time" class="popup-concluir-input" value="${horaAgora}" />
+      <button type="button" class="popup-concluir-confirmar">Confirmar</button>
+    </div>
+    <button type="button" class="popup-concluir-cancelar">Cancelar</button>
+  `;
+  document.body.appendChild(popup);
+  popupConcluirAtual = popup;
+
+  const rect = btnRef.getBoundingClientRect();
+  const popupW = 220;
+  let left = rect.left;
+  let top = rect.bottom + 6;
+  if (left + popupW > window.innerWidth - 8) left = window.innerWidth - popupW - 8;
+  if (top + 136 > window.innerHeight - 8) top = rect.top - 140;
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+
+  popup.addEventListener('click', (ev) => ev.stopPropagation());
+
+  popup.querySelector('.popup-concluir-agora').addEventListener('click', async () => {
+    fecharPopupConcluir();
+    await marcarConcluido(a, horaAgora);
+  });
+
+  popup.querySelector('.popup-concluir-confirmar').addEventListener('click', async () => {
+    const hora = popup.querySelector('.popup-concluir-input').value;
+    if (!hora) return;
+    fecharPopupConcluir();
+    await marcarConcluido(a, hora);
+  });
+
+  popup.querySelector('.popup-concluir-cancelar').addEventListener('click', () => {
+    fecharPopupConcluir();
+  });
+
+  setTimeout(() => {
+    document.addEventListener('click', fecharPopupConcluir, { once: true });
+  }, 0);
+}
+
+async function marcarConcluido(a, horaParam) {
+  const agora = new Date();
+  const horaConclusao = horaParam || `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
 
   const resp = await fetch(`/api/agendamentos/${a.id}/concluir`, {
     method: 'PUT',
