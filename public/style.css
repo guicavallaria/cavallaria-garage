@@ -168,6 +168,15 @@ body {
 }
 .btn-concluir:hover { background: #14507f; }
 
+.btn-editar-conclusao {
+  background: none; border: none; cursor: pointer; font-size: 10px;
+  padding: 0 2px; opacity: 0.6; vertical-align: middle;
+}
+.btn-editar-conclusao:hover { opacity: 1; }
+.input-editar-conclusao {
+  font-size: 10px; font-weight: 700; border: 1px solid #185FA5;
+  border-radius: 3px; padding: 0 2px; width: 52px; color: inherit; background: #fff;
+}
 .btn-desfazer {
   margin-top: 3px; display: block; width: 100%;
   background: none; border: 1px solid #c0392b; color: #c0392b; border-radius: 4px;

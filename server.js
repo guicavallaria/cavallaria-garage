@@ -357,6 +357,17 @@ app.put('/api/agendamentos/:id/concluir', (req, res) => {
   });
 });
 
+app.patch('/api/agendamentos/:id/hora-conclusao', (req, res) => {
+  const id = Number(req.params.id);
+  const { hora_conclusao } = req.body;
+  if (!hora_conclusao) return res.status(400).json({ erro: 'hora_conclusao é obrigatório' });
+  const existing = db.prepare('SELECT * FROM agendamentos WHERE id = ?').get(id);
+  if (!existing || !existing.concluido) return res.status(404).json({ erro: 'Agendamento não encontrado ou não concluído' });
+  db.prepare('UPDATE agendamentos SET hora_conclusao = ? WHERE id = ?').run(hora_conclusao, id);
+  broadcast();
+  res.json({ ok: true });
+});
+
 app.put('/api/agendamentos/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM agendamentos WHERE id = ?').get(id);

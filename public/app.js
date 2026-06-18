@@ -248,7 +248,11 @@ function renderAgenda() {
               else if (diff < 0) situacao = `${Math.abs(diff)} min de atraso`;
               else situacao = 'no horário previsto';
               extra = `
-                <div class="b-concluido ${diff < 0 ? 'atrasado' : 'no-prazo'}">✔ Concluído ${a.hora_conclusao} · ${situacao}</div>
+                <div class="b-concluido ${diff < 0 ? 'atrasado' : 'no-prazo'}">
+                  ✔ Concluído <span class="hora-conclusao-val">${a.hora_conclusao}</span>
+                  <button type="button" class="btn-editar-conclusao" title="Editar hora">✏</button>
+                  · ${situacao}
+                </div>
                 <button type="button" class="btn-desfazer">✕ Desfazer conclusão</button>
               `;
             } else {
@@ -303,6 +307,33 @@ function renderAgenda() {
             btnDesfazer.addEventListener('click', (ev) => {
               ev.stopPropagation();
               desfazerConclusao(a);
+            });
+          }
+          const btnEditarConclusao = bloco.querySelector('.btn-editar-conclusao');
+          if (btnEditarConclusao) {
+            btnEditarConclusao.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const span = bloco.querySelector('.hora-conclusao-val');
+              const horaAtual = span.textContent;
+              const input = document.createElement('input');
+              input.type = 'time';
+              input.value = horaAtual;
+              input.className = 'input-editar-conclusao';
+              span.replaceWith(input);
+              btnEditarConclusao.style.display = 'none';
+              input.focus();
+              async function salvarHoraConclusao() {
+                const novaHora = input.value;
+                if (!novaHora || novaHora === horaAtual) { carregarAgenda(); return; }
+                await fetch(`/api/agendamentos/${a.id}/hora-conclusao`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ hora_conclusao: novaHora }),
+                });
+                carregarAgenda();
+              }
+              input.addEventListener('blur', salvarHoraConclusao);
+              input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.removeEventListener('blur', salvarHoraConclusao); carregarAgenda(); } });
             });
           }
           trilho.appendChild(bloco);
