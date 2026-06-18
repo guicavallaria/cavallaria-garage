@@ -145,6 +145,36 @@ function renderCapacidade() {
     });
 }
 
+function calcularTrilhas(ags) {
+  if (!ags.length) return new Map();
+  const eventos = ags.map((a) => ({
+    id: a.id,
+    inicio: toMinutos(a.hora_inicio),
+    fim: a.concluido
+      ? Math.max(toMinutos(a.hora_conclusao), toMinutos(a.hora_inicio) + 5)
+      : fimEfetivo(a.hora_inicio, a.duracao_horas),
+  })).sort((x, y) => x.inicio - y.inicio || x.fim - y.fim);
+
+  const fimTrilhas = [];
+  const colEvento = new Map();
+  for (const ev of eventos) {
+    let t = fimTrilhas.findIndex((f) => f <= ev.inicio);
+    if (t === -1) { t = fimTrilhas.length; fimTrilhas.push(ev.fim); }
+    else fimTrilhas[t] = ev.fim;
+    colEvento.set(ev.id, t);
+  }
+
+  const resultado = new Map();
+  for (const ev of eventos) {
+    let maxCol = 0;
+    for (const ev2 of eventos) {
+      if (ev2.inicio < ev.fim && ev2.fim > ev.inicio) maxCol = Math.max(maxCol, colEvento.get(ev2.id));
+    }
+    resultado.set(ev.id, { col: colEvento.get(ev.id), totalCols: maxCol + 1 });
+  }
+  return resultado;
+}
+
 function renderAgenda() {
   const aberturaMin = toMinutos(config.hora_abertura);
   const fechamentoMin = toMinutos(config.hora_fechamento);
@@ -208,14 +238,11 @@ function renderAgenda() {
     }
 
     const doMecanico = agendamentos.filter((a) => a.mecanico_id === mec.id);
-    const grupos = {};
-    doMecanico.forEach((a) => {
-      (grupos[a.hora_inicio] = grupos[a.hora_inicio] || []).push(a);
-    });
+    const trilhaMap = calcularTrilhas(doMecanico);
 
-    Object.values(grupos).forEach((grupo) => {
-      grupo.forEach((a, idx) => {
-        const segmentos = a.concluido
+    doMecanico.forEach((a) => {
+      const { col: colIdx, totalCols } = trilhaMap.get(a.id) || { col: 0, totalCols: 1 };
+      const segmentos = a.concluido
           ? [[toMinutos(a.hora_inicio), Math.max(toMinutos(a.hora_conclusao), toMinutos(a.hora_inicio) + 5)]]
           : segmentosOcupados(a.hora_inicio, a.duracao_horas);
 
@@ -228,9 +255,9 @@ function renderAgenda() {
           bloco.style.height = altura + 'px';
           bloco.style.background = hexComAlpha(mec.cor, 0.12);
           bloco.style.borderLeftColor = mec.cor;
-          if (grupo.length > 1) {
-            bloco.style.left = `calc(${idx} * (100% / ${grupo.length}) + 4px)`;
-            bloco.style.width = `calc(100% / ${grupo.length} - 8px)`;
+          if (totalCols > 1) {
+            bloco.style.left = `calc(4px + ${colIdx} * ((100% - 8px) / ${totalCols}))`;
+            bloco.style.width = `calc((100% - 8px) / ${totalCols})`;
             bloco.style.right = 'auto';
           }
 
@@ -253,7 +280,7 @@ function renderAgenda() {
                   <button type="button" class="btn-editar-conclusao" title="Editar hora">✏</button>
                   · ${situacao}
                 </div>
-                <button type="button" class="btn-desfazer">✕ Desfazer conclusão</button>
+                <button type="button" class="btn-desfazer" title="Desfazer conclusão">✕</button>
               `;
             } else {
               const diffPlano = toMinutos(a.hora_inicio_planejada || a.hora_inicio) - toMinutos(a.hora_inicio);
@@ -339,7 +366,6 @@ function renderAgenda() {
           trilho.appendChild(bloco);
         });
       });
-    });
 
     col.appendChild(trilho);
     agenda.appendChild(col);
