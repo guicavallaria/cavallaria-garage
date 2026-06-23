@@ -301,7 +301,7 @@ function renderAgenda() {
 
         segmentos.forEach((seg, segIdx) => {
           const top = minutoParaPosicao(seg[0]);
-          const altura = Math.max((seg[1] - seg[0]) * PX_POR_MINUTO - 2, 18);
+          const altura = Math.max((seg[1] - seg[0]) * PX_POR_MINUTO - 2, segIdx === 0 ? 58 : 18);
           const bloco = document.createElement('div');
           bloco.className = 'bloco-agendamento' + (a.concluido ? ' concluido' : '') + (segIdx > 0 ? ' continuacao' : '');
           bloco.style.top = top + 'px';
@@ -424,7 +424,7 @@ function renderAgenda() {
     agenda.appendChild(col);
   });
 
-  // Coluna "+ Novo profissional"
+  // Coluna "+ Novo profissional" — ícone estreito
   const colAdd = document.createElement('div');
   colAdd.className = 'coluna-mecanico coluna-adicionar';
   const cabAdd = document.createElement('div');
@@ -432,46 +432,19 @@ function renderAgenda() {
   const btnAddCol = document.createElement('button');
   btnAddCol.type = 'button';
   btnAddCol.className = 'btn-add-col';
-  btnAddCol.textContent = '+ Novo profissional';
+  btnAddCol.title = 'Novo profissional';
+  btnAddCol.textContent = '+';
   cabAdd.appendChild(btnAddCol);
   colAdd.appendChild(cabAdd);
   const trilhoAdd = document.createElement('div');
-  trilhoAdd.className = 'trilho';
+  trilhoAdd.className = 'trilho trilho-add';
   trilhoAdd.style.height = alturaTotal + 'px';
   colAdd.appendChild(trilhoAdd);
   agenda.appendChild(colAdd);
 
-  btnAddCol.addEventListener('click', () => {
-    if (trilhoAdd.querySelector('.form-add-col')) return;
-    const form = document.createElement('div');
-    form.className = 'form-add-col';
-    form.innerHTML = `
-      <input type="text" class="add-col-nome" placeholder="Nome do profissional" />
-      <input type="color" class="add-col-cor" value="#5F5E5A" />
-      <button type="button" class="add-col-confirmar">Adicionar</button>
-      <button type="button" class="add-col-cancelar">Cancelar</button>
-    `;
-    trilhoAdd.appendChild(form);
-    form.querySelector('.add-col-nome').focus();
-    async function adicionarProfissional() {
-      const nome = form.querySelector('.add-col-nome').value.trim();
-      const cor = form.querySelector('.add-col-cor').value;
-      if (!nome) return;
-      const resp = await fetch('/api/mecanicos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome, cor }),
-      });
-      if (!resp.ok) { const err = await resp.json(); alert(err.erro); return; }
-      await carregarBase();
-      carregarAgenda();
-    }
-    form.querySelector('.add-col-confirmar').addEventListener('click', adicionarProfissional);
-    form.querySelector('.add-col-nome').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') adicionarProfissional();
-      if (e.key === 'Escape') form.remove();
-    });
-    form.querySelector('.add-col-cancelar').addEventListener('click', () => form.remove());
+  btnAddCol.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    abrirPopupAddProfissional(btnAddCol);
   });
 }
 
@@ -491,6 +464,62 @@ function somarDias(dataISO, n) {
 // ---------- Concluir agendamento / desfazer / adiantar próximos ----------
 let agendamentoConcluidoContexto = null;
 let popupConcluirAtual = null;
+
+function abrirPopupAddProfissional(btnRef) {
+  const existing = document.querySelector('.popup-add-profissional');
+  if (existing) { existing.remove(); return; }
+
+  const popup = document.createElement('div');
+  popup.className = 'popup-add-profissional';
+  popup.innerHTML = `
+    <div class="popup-add-titulo">Novo profissional</div>
+    <input type="text" class="add-col-nome" placeholder="Nome" />
+    <input type="color" class="add-col-cor" value="#5F5E5A" />
+    <div class="add-col-btns">
+      <button type="button" class="add-col-confirmar">Adicionar</button>
+      <button type="button" class="add-col-cancelar">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(popup);
+
+  const rect = btnRef.getBoundingClientRect();
+  const popupW = 220;
+  let left = rect.left - popupW - 6;
+  if (left < 8) left = rect.right + 6;
+  let top = rect.top;
+  if (top + 170 > window.innerHeight - 8) top = window.innerHeight - 170 - 8;
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+
+  popup.addEventListener('click', (ev) => ev.stopPropagation());
+  popup.querySelector('.add-col-nome').focus();
+
+  async function adicionarProfissional() {
+    const nome = popup.querySelector('.add-col-nome').value.trim();
+    const cor = popup.querySelector('.add-col-cor').value;
+    if (!nome) return;
+    const resp = await fetch('/api/mecanicos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, cor }),
+    });
+    if (!resp.ok) { const err = await resp.json(); alert(err.erro); return; }
+    popup.remove();
+    await carregarBase();
+    carregarAgenda();
+  }
+
+  popup.querySelector('.add-col-confirmar').addEventListener('click', adicionarProfissional);
+  popup.querySelector('.add-col-nome').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') adicionarProfissional();
+    if (e.key === 'Escape') popup.remove();
+  });
+  popup.querySelector('.add-col-cancelar').addEventListener('click', () => popup.remove());
+
+  setTimeout(() => {
+    document.addEventListener('click', () => popup.remove(), { once: true });
+  }, 0);
+}
 
 function fecharPopupConcluir() {
   if (popupConcluirAtual) {
