@@ -206,9 +206,62 @@ function renderAgenda() {
     const cab = document.createElement('div');
     cab.className = 'cabecalho' + (profissionalEmAtraso(mec.id) ? ' atrasado' : '');
     cab.style.borderBottomColor = mec.cor;
-    cab.title = mec.nome;
-    cab.textContent = primeiroNome(mec.nome) + (indisp ? ' 🌴' : '');
+
+    const cabNome = document.createElement('span');
+    cabNome.className = 'cab-nome';
+    cabNome.textContent = primeiroNome(mec.nome) + (indisp ? ' 🌴' : '');
+    cabNome.title = mec.nome + ' — clique para renomear';
+
+    const cabBtnRemover = document.createElement('button');
+    cabBtnRemover.type = 'button';
+    cabBtnRemover.className = 'btn-remover-col';
+    cabBtnRemover.title = 'Remover coluna';
+    cabBtnRemover.textContent = '×';
+
+    cab.appendChild(cabNome);
+    cab.appendChild(cabBtnRemover);
     col.appendChild(cab);
+
+    cabNome.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = mec.nome;
+      input.className = 'input-renomear-col';
+      cabNome.replaceWith(input);
+      cabBtnRemover.style.display = 'none';
+      input.focus();
+      input.select();
+      async function salvarNome() {
+        const novoNome = input.value.trim();
+        if (!novoNome || novoNome === mec.nome) { await carregarBase(); carregarAgenda(); return; }
+        const resp = await fetch(`/api/mecanicos/${mec.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome: novoNome, cor: mec.cor }),
+        });
+        if (!resp.ok) { const err = await resp.json(); alert(err.erro); }
+        await carregarBase();
+        carregarAgenda();
+      }
+      input.addEventListener('blur', salvarNome);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') { input.removeEventListener('blur', salvarNome); carregarBase().then(carregarAgenda); }
+      });
+    });
+
+    cabBtnRemover.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const agCount = agendamentos.filter((a) => a.mecanico_id === mec.id).length;
+      const msg = agCount > 0
+        ? `Remover "${mec.nome}"?\n\nEste profissional tem ${agCount} agendamento(s) neste dia. A coluna será ocultada mas os dados serão preservados.`
+        : `Remover a coluna de "${mec.nome}"?`;
+      if (!confirm(msg)) return;
+      await fetch(`/api/mecanicos/${mec.id}`, { method: 'DELETE' });
+      await carregarBase();
+      carregarAgenda();
+    });
 
     const trilho = document.createElement('div');
     trilho.className = 'trilho';
@@ -369,6 +422,56 @@ function renderAgenda() {
 
     col.appendChild(trilho);
     agenda.appendChild(col);
+  });
+
+  // Coluna "+ Novo profissional"
+  const colAdd = document.createElement('div');
+  colAdd.className = 'coluna-mecanico coluna-adicionar';
+  const cabAdd = document.createElement('div');
+  cabAdd.className = 'cabecalho cabecalho-adicionar';
+  const btnAddCol = document.createElement('button');
+  btnAddCol.type = 'button';
+  btnAddCol.className = 'btn-add-col';
+  btnAddCol.textContent = '+ Novo profissional';
+  cabAdd.appendChild(btnAddCol);
+  colAdd.appendChild(cabAdd);
+  const trilhoAdd = document.createElement('div');
+  trilhoAdd.className = 'trilho';
+  trilhoAdd.style.height = alturaTotal + 'px';
+  colAdd.appendChild(trilhoAdd);
+  agenda.appendChild(colAdd);
+
+  btnAddCol.addEventListener('click', () => {
+    if (trilhoAdd.querySelector('.form-add-col')) return;
+    const form = document.createElement('div');
+    form.className = 'form-add-col';
+    form.innerHTML = `
+      <input type="text" class="add-col-nome" placeholder="Nome do profissional" />
+      <input type="color" class="add-col-cor" value="#5F5E5A" />
+      <button type="button" class="add-col-confirmar">Adicionar</button>
+      <button type="button" class="add-col-cancelar">Cancelar</button>
+    `;
+    trilhoAdd.appendChild(form);
+    form.querySelector('.add-col-nome').focus();
+    async function adicionarProfissional() {
+      const nome = form.querySelector('.add-col-nome').value.trim();
+      const cor = form.querySelector('.add-col-cor').value;
+      if (!nome) return;
+      const resp = await fetch('/api/mecanicos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, cor }),
+      });
+      if (!resp.ok) { const err = await resp.json(); alert(err.erro); return; }
+      await carregarBase();
+      carregarAgenda();
+    }
+    form.querySelector('.add-col-confirmar').addEventListener('click', adicionarProfissional);
+    form.querySelector('.add-col-nome').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') adicionarProfissional();
+      if (e.key === 'Escape') form.remove();
+    });
+    form.querySelector('.add-col-cancelar').addEventListener('click', () => form.remove());
   });
 }
 

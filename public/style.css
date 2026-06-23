@@ -103,14 +103,62 @@ body {
   position: sticky;
   top: 0;
   background: #fff;
-  padding: 8px;
+  padding: 6px 8px;
   font-size: 13px;
   font-weight: 600;
   border-bottom: 2px solid;
   text-align: center;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 .coluna-mecanico .cabecalho.atrasado { background: #c0392b; color: #fff; }
+
+.cab-nome { flex: 1; text-align: center; cursor: pointer; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cab-nome:hover { text-decoration: underline dotted rgba(0,0,0,0.4); }
+
+.btn-remover-col {
+  background: none; border: none; cursor: pointer; font-size: 15px; font-weight: 700;
+  color: inherit; opacity: 0; transition: opacity 0.15s; padding: 0 1px; line-height: 1; flex-shrink: 0;
+}
+.cabecalho:hover .btn-remover-col { opacity: 0.45; }
+.btn-remover-col:hover { opacity: 1 !important; color: #c0392b; }
+
+.input-renomear-col {
+  width: 100%; font-size: 13px; font-weight: 600; border: 1.5px solid #185FA5;
+  border-radius: 4px; padding: 2px 4px; text-align: center; background: #fff; color: #1f2330; min-width: 0;
+}
+
+/* Coluna adicionar */
+.coluna-adicionar .cabecalho-adicionar {
+  background: #f8f9fb; border-bottom-color: #c8cad4; border-bottom-style: dashed; cursor: default;
+}
+.btn-add-col {
+  background: none; border: 1.5px dashed #a8aab8; color: #888; border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer; padding: 3px 10px; width: 100%;
+}
+.btn-add-col:hover { background: #edeef3; color: #1f2330; border-color: #555; }
+
+.form-add-col {
+  padding: 10px 8px; display: flex; flex-direction: column; gap: 7px;
+}
+.add-col-nome {
+  width: 100%; padding: 6px 8px; border: 1px solid #d6d8e0; border-radius: 6px;
+  font-size: 13px; font-family: inherit;
+}
+.add-col-cor { width: 100%; height: 30px; border-radius: 6px; cursor: pointer; border: 1px solid #d6d8e0; }
+.add-col-confirmar {
+  width: 100%; background: #185FA5; color: #fff; border: none; border-radius: 6px;
+  padding: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.add-col-confirmar:hover { background: #14507f; }
+.add-col-cancelar {
+  width: 100%; background: #e8e9ee; color: #1f2330; border: none; border-radius: 6px;
+  padding: 5px; font-size: 12.5px; cursor: pointer;
+}
+.add-col-cancelar:hover { background: #d8dae2; }
 .coluna-mecanico .trilho {
   position: relative;
   background-image: repeating-linear-gradient(to bottom, #eef0f3 0, #eef0f3 1px, transparent 1px, transparent 48px);

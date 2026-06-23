@@ -165,8 +165,25 @@ app.post('/api/mecanicos', (req, res) => {
       .run(nome, cor || '#5F5E5A', maxOrdem + 1);
     res.status(201).json(db.prepare('SELECT * FROM mecanicos WHERE id = ?').get(info.lastInsertRowid));
   } catch (e) {
-    res.status(400).json({ erro: 'Já existe um mecânico com esse nome' });
+    res.status(400).json({ erro: 'Já existe um profissional com esse nome' });
   }
+});
+
+app.put('/api/mecanicos/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const { nome, cor } = req.body;
+  if (!nome) return res.status(400).json({ erro: 'nome é obrigatório' });
+  try {
+    db.prepare('UPDATE mecanicos SET nome = ?, cor = COALESCE(?, cor) WHERE id = ?').run(nome, cor || null, id);
+    res.json(db.prepare('SELECT * FROM mecanicos WHERE id = ?').get(id));
+  } catch (e) {
+    res.status(400).json({ erro: 'Já existe um profissional com esse nome' });
+  }
+});
+
+app.delete('/api/mecanicos/:id', (req, res) => {
+  db.prepare('UPDATE mecanicos SET ativo = 0 WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // ---------- Config ----------
