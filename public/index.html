@@ -59,8 +59,12 @@
           <input type="text" id="campoVeiculo" placeholder="Placa / marca / modelo" required />
         </label>
 
-        <label>Telefone do cliente
-          <input type="tel" id="campoTelefone" placeholder="Ex: 41 99999-9999" />
+        <label>Telefone do cliente (WhatsApp)
+          <div class="tel-wrap">
+            <span class="tel-prefix">+55</span>
+            <input type="tel" id="campoTelefone" placeholder="(41) 99999-9999" inputmode="numeric" maxlength="15" autocomplete="off" />
+          </div>
+          <small id="telefoneAviso" class="tel-aviso hidden">Informe DDD + 9 dígitos — ex: (41) 99999-9999</small>
         </label>
 
         <label>Número da OS

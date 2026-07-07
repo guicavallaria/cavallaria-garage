@@ -653,8 +653,46 @@ function resetAvisoPreSalvar() {
   document.getElementById('avisoPreSalvar').classList.add('hidden');
 }
 
+// ---------- Telefone (formato canônico BR: +55 (DD) 9XXXX-XXXX) ----------
+// Guarda no banco só os dígitos nacionais (DDD + número). O +55 é fixo na UI.
+function telefoneDigitos(valor) {
+  let d = String(valor || '').replace(/\D/g, '');
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2); // tolera valores antigos com 55
+  return d.slice(0, 11);
+}
+
+// Formata a parte nacional conforme o operador digita: (41) 99999-9999
+function formatarTelefoneNacional(valor) {
+  const d = telefoneDigitos(valor);
+  if (!d) return '';
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+// Exibição completa com o +55: +55 (41) 99999-9999
+function formatarTelefoneCompleto(valor) {
+  const d = telefoneDigitos(valor);
+  return d ? `+55 ${formatarTelefoneNacional(d)}` : '';
+}
+
+// Válido = DDD (2) + 9 dígitos do celular = 11 dígitos
+function telefoneValido(valor) {
+  return telefoneDigitos(valor).length === 11;
+}
+
+const campoTelefone = document.getElementById('campoTelefone');
+const telefoneAviso = document.getElementById('telefoneAviso');
+campoTelefone.addEventListener('input', () => {
+  campoTelefone.value = formatarTelefoneNacional(campoTelefone.value);
+  const d = telefoneDigitos(campoTelefone.value);
+  // avisa só quando começou a preencher mas ainda não completou os 11 dígitos
+  telefoneAviso.classList.toggle('hidden', d.length === 0 || d.length === 11);
+});
+
 function abrirModalNovo(mecanicoId, hora) {
   formAgendamento.reset();
+  telefoneAviso.classList.add('hidden');
   document.getElementById('agendamentoId').value = '';
   document.getElementById('modalTitulo').textContent = 'Novo agendamento';
   document.getElementById('btnExcluir').classList.add('hidden');
@@ -684,7 +722,8 @@ function abrirModalEdicao(a) {
   document.getElementById('campoCategoria').value = a.categoria;
   document.getElementById('campoNomeCliente').value = a.nome_cliente || '';
   document.getElementById('campoVeiculo').value = a.veiculo;
-  document.getElementById('campoTelefone').value = a.telefone || '';
+  document.getElementById('campoTelefone').value = formatarTelefoneNacional(a.telefone || '');
+  telefoneAviso.classList.add('hidden');
   document.getElementById('campoOS').value = a.numero_os || '';
   document.getElementById('campoServico').value = a.servico;
   document.getElementById('campoData').value = a.data;
@@ -752,7 +791,7 @@ function coletarPayload() {
     categoria: document.getElementById('campoCategoria').value,
     nome_cliente: document.getElementById('campoNomeCliente').value || null,
     veiculo: document.getElementById('campoVeiculo').value,
-    telefone: document.getElementById('campoTelefone').value || null,
+    telefone: telefoneDigitos(document.getElementById('campoTelefone').value) || null,
     numero_os: document.getElementById('campoOS').value,
     servico: document.getElementById('campoServico').value,
     data: document.getElementById('campoData').value,
@@ -781,6 +820,16 @@ let dataEspecialConfirmada = false;
 
 formAgendamento.addEventListener('submit', async (ev) => {
   ev.preventDefault();
+
+  // Telefone é opcional, mas se preenchido precisa estar completo (DDD + 9 dígitos)
+  // para o lembrete do WhatsApp funcionar.
+  const telInformado = campoTelefone.value.trim();
+  if (telInformado && !telefoneValido(telInformado)) {
+    telefoneAviso.classList.remove('hidden');
+    campoTelefone.focus();
+    return;
+  }
+
   const payload = coletarPayload();
 
   if (!dataEspecialConfirmada) {
@@ -975,7 +1024,7 @@ function abrirModalInfo(a, mec) {
   const horaFimEstimada = paraHHMM(fimEfetivo(a.hora_inicio, a.duracao_horas));
   const [y, m, d] = a.data.split('-');
   const dataFormatada = `${d}/${m}/${y}`;
-  const telefoneDisplay = a.telefone ? `+55(${a.telefone})` : '—';
+  const telefoneDisplay = formatarTelefoneCompleto(a.telefone) || '—';
   const nomeClienteDisplay = a.nome_cliente || '—';
 
   let statusHtml = '';
@@ -1149,16 +1198,16 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
   if (comTelefone.length) {
     html += '<div class="lembrete-list">';
     comTelefone.forEach((a) => {
-      const tel = `+55(${a.telefone})`;
+      const tel = formatarTelefoneCompleto(a.telefone);
       const horaPeriodo = toMinutos(a.hora_inicio) < toMinutos(config.pausa_almoco_inicio)
         ? config.hora_abertura
         : config.pausa_almoco_fim;
       const corpoMsg = `Caro Cliente, esta mensagem é um lembrete do seu agendamento na oficina Cavallaria Garage para o dia ${dataFormatada} às ${horaPeriodo}. Posso confirmar sua presença?`;
       const msgExibicao = `${tel}\n${corpoMsg}`;
       const msgEnc = encodeURIComponent(msgExibicao);
-      const telRaw = encodeURIComponent(a.telefone);
+      const telRaw = encodeURIComponent(telefoneDigitos(a.telefone));
       const corpoEnc = encodeURIComponent(corpoMsg);
-      const waLink = `https://wa.me/55${a.telefone.replace(/\D/g, '')}?text=${corpoEnc}`;
+      const waLink = `https://wa.me/55${telefoneDigitos(a.telefone)}?text=${corpoEnc}`;
 
       const jaEnviado = !!a.lembrete_enviado_em;
       let enviadoEm = '';
