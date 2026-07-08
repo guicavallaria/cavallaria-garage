@@ -1069,7 +1069,7 @@ let waStatusAtual = 'disconnected';
 let waStatusInterval = null;
 
 async function verificarStatusWA() {
-  const { status, qrDataUrl } = await fetch('/api/whatsapp/status').then((r) => r.json());
+  const { status, qrDataUrl, erro } = await fetch('/api/whatsapp/status').then((r) => r.json());
   waStatusAtual = status;
 
   const dot = document.getElementById('waStatusDot');
@@ -1108,8 +1108,8 @@ async function verificarStatusWA() {
   if (msgEl) {
     if (status === 'ready') msgEl.textContent = '✅ Conectado com sucesso!';
     else if (status === 'qr') msgEl.textContent = 'Aguardando escaneamento do QR Code…';
-    else if (status === 'connecting') msgEl.textContent = 'Conectando, aguarde…';
-    else msgEl.textContent = 'Desconectado. Clique em Reconectar para gerar um novo QR.';
+    else if (status === 'connecting') msgEl.textContent = erro ? `⚠️ ${erro}` : 'Conectando, aguarde…';
+    else msgEl.textContent = erro ? `⚠️ Erro: ${erro}` : 'Desconectado. Clique em Reconectar para gerar um novo QR.';
   }
 }
 

@@ -22,6 +22,7 @@ let client = null;
 let status = 'disconnected'; // 'disconnected' | 'qr' | 'connecting' | 'ready'
 let qrDataUrl = null;
 let inicializado = false;
+let ultimoErro = null; // mensagem do último erro de inicialização/autenticação (pra mostrar na tela)
 
 function inicializar() {
   if (inicializado) return;
@@ -34,24 +35,29 @@ function inicializar() {
     puppeteer: {
       headless: true,
       executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      // NÃO usar --single-process nem --no-zygote: a doc do Puppeteer alerta que
+      // travam/derrubam o Chromium dentro de container (causa do QR não carregar no Railway).
       args: [
         '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas', '--disable-gpu',
-        '--no-first-run', '--no-zygote', '--single-process',
+        '--no-first-run', '--disable-extensions',
       ],
     },
   });
 
   status = 'connecting';
+  ultimoErro = null;
 
   client.on('qr', async (qr) => {
     status = 'qr';
+    ultimoErro = null;
     qrDataUrl = await qrcode.toDataURL(qr);
     console.log('WhatsApp: QR Code gerado. Acesse /api/whatsapp/status para escanear.');
   });
 
   client.on('ready', () => {
     status = 'ready';
+    ultimoErro = null;
     qrDataUrl = null;
     console.log('WhatsApp: Conectado!');
   });
@@ -61,11 +67,12 @@ function inicializar() {
     qrDataUrl = null;
   });
 
-  client.on('auth_failure', () => {
+  client.on('auth_failure', (msg) => {
     status = 'disconnected';
     qrDataUrl = null;
     inicializado = false;
-    console.log('WhatsApp: Falha na autenticação.');
+    ultimoErro = `Falha na autenticação: ${msg || 'desconhecida'}`;
+    console.log('WhatsApp: Falha na autenticação.', msg || '');
   });
 
   client.on('disconnected', () => {
@@ -78,12 +85,13 @@ function inicializar() {
   client.initialize().catch((err) => {
     status = 'disconnected';
     inicializado = false;
+    ultimoErro = err.message;
     console.error('WhatsApp: Erro ao inicializar:', err.message);
   });
 }
 
 function getStatus() {
-  return { status, qrDataUrl };
+  return { status, qrDataUrl, erro: ultimoErro };
 }
 
 async function enviarMensagem(telefone, mensagem) {
