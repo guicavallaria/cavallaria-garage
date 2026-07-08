@@ -540,6 +540,22 @@ app.post('/api/whatsapp/reconectar', (req, res) => {
   res.json({ ok: true });
 });
 
+// TEMPORÁRIO: diagnóstico do Chromium no container (remover depois de resolver)
+app.get('/api/whatsapp/diag', (req, res) => {
+  const { exec } = require('child_process');
+  const chrome = process.env.CHROME_PATH || 'chromium';
+  const run = (cmd) => new Promise((resolve) => {
+    exec(cmd, { timeout: 25000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ cmd, code: err ? (err.code ?? err.signal ?? 'err') : 0, stdout: (stdout || '').slice(0, 2000), stderr: (stderr || '').slice(0, 4000) });
+    });
+  });
+  Promise.all([
+    run(`"${chrome}" --version`),
+    run(`ldd "${chrome}" | grep -i "not found" || echo "sem libs faltando"`),
+    run(`"${chrome}" --headless=new --no-sandbox --no-zygote --single-process --disable-gpu --disable-dev-shm-usage --dump-dom about:blank`),
+  ]).then((r) => res.json({ chrome, version: r[0], ldd: r[1], smoke: r[2] }));
+});
+
 app.post('/api/whatsapp/enviar', async (req, res) => {
   const { telefone, mensagem, agendamento_id } = req.body;
   if (!telefone || !mensagem) return res.status(400).json({ erro: 'telefone e mensagem são obrigatórios' });
