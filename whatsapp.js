@@ -35,15 +35,13 @@ function inicializar() {
     puppeteer: {
       headless: true,
       executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      // --single-process + --no-zygote são NECESSÁRIOS no container do Railway:
-      // o seccomp restritivo bloqueia os syscalls do processo "zygote" do Chromium,
-      // e sem essas flags o browser morre na largada ("Failed to launch ... Code: null").
-      // Rodar tudo em um processo só evita o zygote e o IPC via dbus.
+      // NÃO usar --single-process / --no-zygote: com o Chrome for Testing neste
+      // runtime elas causam SIGTRAP (exit 133) — comprovado via /api/whatsapp/diag
+      // (v1/v2/v5 sem elas = OK; v3/v4/v6 com elas = 133). Conjunto que funciona:
       args: [
         '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas', '--disable-gpu',
         '--no-first-run', '--disable-extensions',
-        '--no-zygote', '--single-process',
       ],
     },
   });
