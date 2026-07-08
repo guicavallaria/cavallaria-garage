@@ -25,10 +25,17 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 
+# Chrome for Testing (versão estável testada pelo Puppeteer). O chromium 150 do
+# Debian trava com SIGTRAP (exit 133) neste runtime, independente de flags/headless.
+# Mantemos o pacote apt "chromium" acima só pelas libs de runtime; usamos este binário.
+RUN npx -y @puppeteer/browsers install chrome@stable --path /opt/chrome \
+  && ln -sf "$(find /opt/chrome -type f -name chrome | head -n1)" /usr/local/bin/chrome-stable \
+  && /usr/local/bin/chrome-stable --version
+
 COPY . .
 
 ENV NODE_ENV=production
-ENV CHROME_PATH=/usr/bin/chromium
+ENV CHROME_PATH=/usr/local/bin/chrome-stable
 ENV DATA_DIR=/data
 
 RUN mkdir -p /data
