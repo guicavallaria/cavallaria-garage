@@ -35,12 +35,15 @@ function inicializar() {
     puppeteer: {
       headless: true,
       executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      // NÃO usar --single-process nem --no-zygote: a doc do Puppeteer alerta que
-      // travam/derrubam o Chromium dentro de container (causa do QR não carregar no Railway).
+      // --single-process + --no-zygote são NECESSÁRIOS no container do Railway:
+      // o seccomp restritivo bloqueia os syscalls do processo "zygote" do Chromium,
+      // e sem essas flags o browser morre na largada ("Failed to launch ... Code: null").
+      // Rodar tudo em um processo só evita o zygote e o IPC via dbus.
       args: [
         '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas', '--disable-gpu',
         '--no-first-run', '--disable-extensions',
+        '--no-zygote', '--single-process',
       ],
     },
   });
