@@ -544,16 +544,26 @@ app.post('/api/whatsapp/reconectar', (req, res) => {
 app.get('/api/whatsapp/diag', (req, res) => {
   const { exec } = require('child_process');
   const chrome = process.env.CHROME_PATH || 'chromium';
-  const run = (cmd) => new Promise((resolve) => {
-    exec(cmd, { timeout: 25000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ cmd, code: err ? (err.code ?? err.signal ?? 'err') : 0, stdout: (stdout || '').slice(0, 2000), stderr: (stderr || '').slice(0, 4000) });
+  const base = '--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu';
+  const variantes = {
+    v1_new: `--headless=new ${base}`,
+    v2_old: `--headless=old ${base}`,
+    v3_new_single: `--headless=new ${base} --no-zygote --single-process`,
+    v4_old_single: `--headless=old ${base} --no-zygote --single-process`,
+    v5_swiftshader: `--headless=new ${base} --disable-software-rasterizer --use-gl=angle --use-angle=swiftshader`,
+    v6_nocrash: `--headless=new ${base} --no-zygote --single-process --disable-crash-reporter --disable-breakpad`,
+  };
+  const run = (flags) => new Promise((resolve) => {
+    exec(`"${chrome}" ${flags} --dump-dom about:blank`, { timeout: 20000, maxBuffer: 1024 * 1024 }, (err) => {
+      resolve(err ? (err.signal ? `SIG:${err.signal}` : `code:${err.code}`) : 'OK');
     });
   });
-  Promise.all([
-    run(`"${chrome}" --version`),
-    run(`ldd "${chrome}" | grep -i "not found" || echo "sem libs faltando"`),
-    run(`"${chrome}" --headless=new --no-sandbox --no-zygote --single-process --disable-gpu --disable-dev-shm-usage --dump-dom about:blank`),
-  ]).then((r) => res.json({ chrome, version: r[0], ldd: r[1], smoke: r[2] }));
+  const nomes = Object.keys(variantes);
+  Promise.all(nomes.map((n) => run(variantes[n]))).then((res2) => {
+    const out = {};
+    nomes.forEach((n, i) => { out[n] = res2[i]; });
+    res.json({ chrome, resultado: out });
+  });
 });
 
 app.post('/api/whatsapp/enviar', async (req, res) => {
