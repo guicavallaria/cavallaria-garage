@@ -99,7 +99,15 @@ function getStatus() {
 // referências do Puppeteer órfãs. Quando isso acontece, TODO envio passa a
 // falhar até o cliente ser reinicializado — daí a auto-recuperação abaixo.
 function sessaoOrfa(msg) {
-  return /detached Frame|Execution context was destroyed|Target closed|Session closed|Protocol error/i.test(msg || '');
+  const m = String(msg || '');
+  // Além da frame órfã, a lib às vezes perde as estruturas que injeta na página
+  // do WhatsApp Web e falha com "Cannot read properties of undefined (getChat/
+  // sendMessage/...)" — bug aberto na 1.34.x. Tratamos igual: reconectar.
+  // Erros muito curtos ("r") são exceções minificadas vindas de dentro da página.
+  return (
+    /detached Frame|Execution context was destroyed|Target closed|Session closed|Protocol error|Evaluation failed|Cannot read propert|undefined \(reading/i.test(m) ||
+    m.length <= 3
+  );
 }
 
 async function enviarMensagem(telefone, mensagem) {
@@ -118,7 +126,7 @@ async function enviarMensagem(telefone, mensagem) {
     if (sessaoOrfa(err.message)) {
       console.log('WhatsApp: sessão órfã detectada, reconectando...', err.message);
       reconectar(); // LocalAuth guarda a sessão: reconecta sem pedir QR de novo
-      throw new Error('A sessão do WhatsApp caiu (a página recarregou sozinha). Já estou reconectando — aguarde ~30s e clique em Enviar de novo.');
+      throw new Error('A sessão do WhatsApp perdeu o vínculo com a página. Reconectando — aguarde ~30s e tente de novo. Se insistir, use o botão "Abrir no WhatsApp" (envio manual, não depende disso).');
     }
     throw err;
   }
