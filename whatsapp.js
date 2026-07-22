@@ -95,23 +95,52 @@ function getStatus() {
   return { status, qrDataUrl, erro: ultimoErro };
 }
 
+// A página do WhatsApp Web recarrega sozinha de vez em quando e deixa as
+// referências do Puppeteer órfãs. Quando isso acontece, TODO envio passa a
+// falhar até o cliente ser reinicializado — daí a auto-recuperação abaixo.
+function sessaoOrfa(msg) {
+  return /detached Frame|Execution context was destroyed|Target closed|Session closed|Protocol error/i.test(msg || '');
+}
+
 async function enviarMensagem(telefone, mensagem) {
   if (status !== 'ready') throw new Error('WhatsApp não está conectado');
 
   const digitos = telefone.replace(/\D/g, '');
-  const numero = digitos.startsWith('55') ? digitos : `55${digitos}`;
+  // Só considera que já tem código do país se sobrar mais que o número nacional
+  // (11 dígitos). Sem isso, um DDD 55 (ex: 55 9xxxx-xxxx) ficaria sem o +55.
+  const numero = digitos.length > 11 && digitos.startsWith('55') ? digitos : `55${digitos}`;
 
-  const chatId = await client.getNumberId(numero);
-  if (!chatId) throw new Error(`Número ${numero} não encontrado no WhatsApp`);
-
-  await client.sendMessage(chatId._serialized, mensagem);
+  try {
+    const chatId = await client.getNumberId(numero);
+    if (!chatId) throw new Error(`Número ${numero} não encontrado no WhatsApp`);
+    await client.sendMessage(chatId._serialized, mensagem);
+  } catch (err) {
+    if (sessaoOrfa(err.message)) {
+      console.log('WhatsApp: sessão órfã detectada, reconectando...', err.message);
+      reconectar(); // LocalAuth guarda a sessão: reconecta sem pedir QR de novo
+      throw new Error('A sessão do WhatsApp caiu (a página recarregou sozinha). Já estou reconectando — aguarde ~30s e clique em Enviar de novo.');
+    }
+    throw err;
+  }
 }
 
 function reconectar() {
+  // Encerra o cliente anterior ANTES de subir outro: além de evitar um processo
+  // do Chrome órfão comendo memória, os dois disputariam o mesmo diretório de
+  // sessão (LocalAuth) se subissem juntos.
+  const anterior = client;
+  client = null;
   inicializado = false;
-  status = 'disconnected';
+  status = 'connecting';
   qrDataUrl = null;
-  inicializar();
+
+  const encerrar = anterior
+    ? Promise.resolve()
+        .then(() => anterior.destroy())
+        .catch((err) => console.log('WhatsApp: erro ao encerrar cliente anterior (ignorado):', err.message))
+    : Promise.resolve();
+
+  encerrar.then(() => inicializar());
 }
 
 module.exports = { inicializar, getStatus, enviarMensagem, reconectar };

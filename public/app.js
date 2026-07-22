@@ -1285,6 +1285,16 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
         btn.textContent = '❌ Erro';
         btn.classList.add('erro');
         btn.title = erro;
+        // Mostra o motivo no próprio card — antes só existia como tooltip,
+        // então o operador não tinha como saber o que deu errado.
+        const cardErro = btn.closest('.lembrete-card');
+        let msgErro = cardErro.querySelector('.lembrete-erro');
+        if (!msgErro) {
+          msgErro = document.createElement('div');
+          msgErro.className = 'lembrete-erro';
+          cardErro.appendChild(msgErro);
+        }
+        msgErro.textContent = `⚠️ ${erro}`;
         setTimeout(() => {
           btn.textContent = '📤 Enviar';
           btn.classList.remove('erro');
