@@ -1203,8 +1203,9 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
         ? config.hora_abertura
         : config.pausa_almoco_fim;
       const corpoMsg = `Caro Cliente, esta mensagem é um lembrete do seu agendamento na oficina Cavallaria Garage para o dia ${dataFormatada} às ${horaPeriodo}. Posso confirmar sua presença?`;
-      const msgExibicao = `${tel}\n${corpoMsg}`;
-      const msgEnc = encodeURIComponent(msgExibicao);
+      const msgExibicao = corpoMsg;                 // textarea e "copiar mensagem" mostram SÓ a mensagem (sem telefone)
+      const msgEnc = encodeURIComponent(corpoMsg);
+      const telCopiaEnc = encodeURIComponent(tel);  // telefone formatado p/ o botão "copiar telefone"
       const telRaw = encodeURIComponent(telefoneDigitos(a.telefone));
       const corpoEnc = encodeURIComponent(corpoMsg);
       const waLink = `https://wa.me/55${telefoneDigitos(a.telefone)}?text=${corpoEnc}`;
@@ -1227,7 +1228,8 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
           ${jaEnviado ? `<div class="lembrete-enviado-badge">✅ Lembrete enviado em ${enviadoEm} <button type="button" class="btn-desfazer-lembrete" data-id="${a.id}">Desfazer</button></div>` : ''}
           <textarea class="lembrete-msg" readonly rows="3">${msgExibicao}</textarea>
           <div class="lembrete-btns">
-            <button type="button" class="btn-copiar-lembrete btn-ghost" data-msg="${msgEnc}">📋 Copiar</button>
+            <button type="button" class="btn-copiar-tel-lembrete btn-ghost" data-telcopy="${telCopiaEnc}">📞 Copiar telefone</button>
+            <button type="button" class="btn-copiar-lembrete btn-ghost" data-msg="${msgEnc}">📋 Copiar mensagem</button>
             <a href="${waLink}" target="_blank" class="btn-ghost btn-wa-link">💬 Abrir no WhatsApp</a>
             <button type="button" class="btn-enviar-lembrete btn-primary ${jaEnviado ? 'enviado' : ''}" data-id="${a.id}" data-tel="${telRaw}" data-corpo="${corpoEnc}" ${jaEnviado || waStatusAtual !== 'ready' ? 'disabled' : ''}>
               ${jaEnviado ? '✅ Enviado' : waStatusAtual === 'ready' ? '📤 Enviar' : '📵 Desconectado'}
@@ -1248,6 +1250,17 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
     btn.addEventListener('click', () => {
       const msg = decodeURIComponent(btn.dataset.msg);
       navigator.clipboard.writeText(msg).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✅ Copiado!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      });
+    });
+  });
+
+  document.querySelectorAll('.btn-copiar-tel-lembrete').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tel = decodeURIComponent(btn.dataset.telcopy);
+      navigator.clipboard.writeText(tel).then(() => {
         const orig = btn.textContent;
         btn.textContent = '✅ Copiado!';
         setTimeout(() => { btn.textContent = orig; }, 2000);
