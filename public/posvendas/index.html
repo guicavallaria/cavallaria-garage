@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pós-vendas — Cavallaria & AWDYNA</title>
+<style>
+:root{--bg:#ffffff;--bg2:#F5F4F1;--txt:#1A1A18;--txt2:#6B6A66;--bd:#E8E6E0;--bd2:#D8D6D0;--accent:#185FA5;--md:8px;--lg:12px}
+*{box-sizing:border-box}
+body{margin:0;padding:22px 18px 40px;background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;max-width:940px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:19px;font-weight:600;margin:0}
+.sub{font-size:12px;color:var(--txt2);margin:3px 0 0}
+.ro{display:inline-block;font-size:10px;font-weight:600;background:#E6F1FB;color:var(--accent);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle}
+.top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.linkbtn{display:inline-block;text-decoration:none;background:var(--bg2);border:0.5px solid var(--bd2);border-radius:var(--md);padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;color:var(--txt)}
+.sair{background:var(--bg2);border:0.5px solid var(--bd2);border-radius:var(--md);padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;color:var(--txt)}
+.weeks{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 14px}
+.wk{border:0.5px solid var(--bd2);background:#fff;border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;color:var(--txt2);font-family:inherit}
+.wk:hover{border-color:var(--txt2)}
+.wk.active{background:var(--txt);color:#fff;border-color:var(--txt)}
+.wk .emp{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:1px 5px;border-radius:8px;margin-right:5px;vertical-align:middle}
+.emp-cav{background:#E6F1FB;color:#185FA5}.emp-awd{background:#FDECEC;color:#D2232A}
+.wk.active .emp{background:rgba(255,255,255,.22);color:#fff}
+.filtros{display:flex;gap:6px;margin:14px 0 0;flex-wrap:wrap}
+.filtros button{border:0.5px solid var(--bd2);background:#fff;border-radius:20px;padding:5px 13px;font-size:12px;cursor:pointer;color:var(--txt2);font-family:inherit}
+.filtros button.active{background:var(--txt);color:#fff;border-color:var(--txt)}
+.tabs{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.tab{background:transparent;border:0.5px solid var(--bd2);border-radius:var(--md);padding:6px 13px;font-size:12px;color:var(--txt2);cursor:pointer;font-family:inherit}
+.tab.active{background:var(--txt);color:#fff;border-color:var(--txt)}
+.pane{display:none}.pane.active{display:block}
+.note{font-size:11px;color:var(--txt2);line-height:1.55;margin:0 0 14px;background:var(--bg2);border-radius:var(--md);padding:10px 12px}
+/* cards pós-vendas */
+.card{border:0.5px solid var(--bd);border-radius:var(--lg);padding:13px 15px;margin-bottom:11px}
+.chead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:7px}
+.cli{font-size:13px;font-weight:600}
+.osnum{color:var(--accent);font-weight:700}
+.meta{font-size:11px;color:var(--txt2);line-height:1.55;margin-bottom:7px}
+.resumo{font-size:11px;line-height:1.55;background:var(--bg2);border-radius:var(--md);padding:8px 11px;margin-bottom:10px}
+.resumo b{color:var(--txt2);font-weight:600}
+.tel{display:inline-flex;align-items:center;gap:9px;background:#F0FAF3;border:0.5px solid #BFE6CC;color:#0F6E56;
+  border-radius:var(--md);padding:7px 12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;
+  font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.tel:hover{border-color:#0F6E56}
+.tel .cp{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#0F6E56;opacity:.65}
+.tel.off{background:var(--bg2);border-color:var(--bd);color:var(--txt2);font-size:12px;font-weight:600;cursor:default}
+.copiado{background:#0F6E56 !important;border-color:#0F6E56 !important;color:#fff !important}
+.msg-lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);font-weight:700;margin-bottom:5px}
+.msg-edit{display:block;width:100%;min-height:104px;font-family:inherit;font-size:12px;line-height:1.6;
+  background:#F2F7FC;border:0.5px solid #D6E5F5;border-radius:var(--md);padding:10px 12px;margin-bottom:10px;
+  color:var(--txt);resize:vertical}
+.msg-edit:focus{outline:none;border-color:var(--accent);background:#fff}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.copiar{background:var(--bg2);border:0.5px solid var(--bd2);border-radius:var(--md);padding:6px 12px;font-size:12px;cursor:pointer;color:var(--txt);font-family:inherit}
+.copiar.forte{background:#0F6E56;border-color:#0F6E56;color:#fff;font-weight:600}
+.copiar.forte:hover{background:#0c5d49}
+/* tabela OS */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-size:10px;font-weight:600;color:var(--txt2);text-align:left;padding:7px 6px;border-bottom:1px solid var(--bd);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+td{padding:8px 6px;border-bottom:0.5px solid var(--bd);vertical-align:middle}
+tr:hover td{background:var(--bg2)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chk{display:inline-flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap}
+.ico{width:13px;height:13px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#fff;flex-shrink:0}
+.ok .ico{background:#16A34A}.bad .ico{background:#DC2626}
+.ok{color:var(--txt2)}.bad{color:#DC2626;font-weight:600}
+.small{font-size:10px;color:var(--txt2)}
+.empty{font-size:13px;color:var(--txt2);padding:30px 0;text-align:center}
+@media(max-width:640px){ .wrap-tbl{overflow-x:auto} }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📞 Pós-vendas — Cavallaria &amp; AWDYNA <span class="ro">somente leitura</span></h1>
+    <p class="sub" id="sub">Carregando…</p>
+  </div>
+  <div class="top-actions">
+    <a class="linkbtn" href="/">← Agenda</a>
+    <button class="sair" id="sair">Sair</button>
+  </div>
+</header>
+
+<div class="filtros" id="filtros">
+  <button data-e="" class="active">Todas</button>
+  <button data-e="Cavallaria">🏁 Cavallaria</button>
+  <button data-e="AWDYNA">🏎️ AWDYNA</button>
+</div>
+<div class="weeks" id="weeks"></div>
+
+<div class="tabs">
+  <button class="tab active" data-p="pv">📞 Contatos de pós-venda</button>
+  <button class="tab" data-p="os">📋 Lista de OS</button>
+</div>
+
+<div id="pv" class="pane active">
+  <p class="note">Lista de contatos da semana, da OS de maior para a de menor porte. Clique no <b>telefone</b> para copiá-lo já no formato do WhatsApp, ajuste a <b>mensagem</b> se quiser e clique em <b>📋 Copiar mensagem</b>. Depois é só colar no seu WhatsApp e enviar. Anote os resultados dos contatos e repasse ao Guilherme.</p>
+  <div id="pv-list"></div>
+</div>
+
+<div id="os" class="pane">
+  <p class="note">Conferência de preenchimento das OS da semana: quilometragem, fotos anexadas e datas.</p>
+  <div class="wrap-tbl"><table id="os-table"></table></div>
+</div>
+
+<script>
+let semanas=[], atual=null, msgOrig={};
+
+const escTa = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function valorDe(id){ const el=document.getElementById(id); if(!el) return ''; return el.tagName==='TEXTAREA' ? el.value : el.textContent; }
+function restaurarMsg(id){ const el=document.getElementById(id); if(el) el.value=msgOrig[id]||''; }
+
+const fmtKm = k => { const n=parseInt(String(k||'').replace(/\D/g,''),10); return isNaN(n)?'—':n.toLocaleString('pt-BR')+' km'; };
+
+function chkKm(o){
+  return o.kmOk
+    ? `<span class="chk ok" title="Quilometragem coerente"><span class="ico">✓</span>${fmtKm(o.km)}</span>`
+    : `<span class="chk bad" title="${o.kmMot||'Km suspeita'}"><span class="ico">!</span>${(String(o.km)==='0'||!o.km)?'sem km':fmtKm(o.km)}</span>`;
+}
+function chkFoto(o){
+  return o.fotosOk
+    ? `<span class="chk ok" title="${o.fotos} foto(s) anexada(s)"><span class="ico">✓</span>${o.fotos} 📷</span>`
+    : `<span class="chk bad" title="Nenhuma foto anexada"><span class="ico">!</span>sem foto</span>`;
+}
+
+let filtroEmp='';
+function empBadge(emp){
+  const cls = emp==='AWDYNA' ? 'emp-awd' : 'emp-cav';
+  return `<span class="emp ${cls}">${emp==='AWDYNA'?'AWDYNA':'CAVALLARIA'}</span>`;
+}
+function osFiltradas(s){ return (s.os||[]).filter(o=>!filtroEmp || o.empresa===filtroEmp); }
+
+function renderPV(s){
+  const el=document.getElementById('pv-list');
+  const arr=osFiltradas(s);
+  if(!arr.length){ el.innerHTML='<p class="empty">Nenhuma OS nesta semana.</p>'; return; }
+  el.innerHTML = arr.map((o,i)=>{
+    msgOrig['m'+i] = o.mensagem||'';
+    const tel = o.foneWa
+      ? `<button class="tel" onclick="copiarTexto(this,'f${i}')" title="Clique para copiar"><span id="f${i}">${o.foneWa}</span> <span class="cp">copiar</span></button>`
+      : `<span class="tel off">📵 Sem telefone cadastrado</span>`;
+    return `<div class="card">
+      <div class="chead">
+        <div class="cli">${empBadge(o.empresa)} <span class="osnum">#${o.os}</span> · ${o.cliente||'—'}</div>
+      </div>
+      <div class="meta">🚗 ${o.veiculo||'—'}</div>
+      <div class="acts" style="margin-bottom:9px">${tel}</div>
+      <div class="resumo"><b>Serviços/peças:</b> ${o.resumo||'—'}</div>
+      <span class="msg-lbl">Mensagem — edite se quiser e copie</span>
+      <textarea class="msg-edit" id="m${i}">${escTa(o.mensagem)}</textarea>
+      <div class="acts">
+        <button class="copiar forte" onclick="copiarTexto(this,'m${i}')">📋 Copiar mensagem</button>
+        <button class="copiar" onclick="restaurarMsg('m${i}')" title="Voltar ao texto sugerido">↺ Restaurar</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderOS(s){
+  const t=document.getElementById('os-table');
+  const arr=osFiltradas(s);
+  if(!arr.length){ t.innerHTML=''; return; }
+  let h='<thead><tr><th>Empresa</th><th>OS</th><th>Cliente</th><th>Veículo</th><th>Km</th><th>Fotos</th><th>Finalizado</th><th>Retirada</th><th>Faturado</th></tr></thead><tbody>';
+  [...arr].sort((a,b)=>a.os-b.os).forEach(o=>{
+    h+=`<tr>
+      <td>${empBadge(o.empresa)}</td>
+      <td><strong>#${o.os}</strong></td>
+      <td>${o.cliente||'—'}</td>
+      <td class="small">${o.veiculo||'—'}</td>
+      <td>${chkKm(o)}</td>
+      <td>${chkFoto(o)}</td>
+      <td class="small">${o.finalizado}</td>
+      <td class="small">${o.retirada}</td>
+      <td class="small">${o.faturado}</td>
+    </tr>`;
+  });
+  t.innerHTML=h+'</tbody>';
+}
+
+function copiarTexto(btn,id){
+  const txt=valorDe(id);
+  if(navigator.clipboard) navigator.clipboard.writeText(txt.trim());
+  else { const t=document.createElement('textarea'); t.value=txt.trim(); document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+  const antes=btn.innerHTML;
+  btn.innerHTML='✓ Copiado';
+  btn.classList.add('copiado');
+  setTimeout(()=>{ btn.innerHTML=antes; btn.classList.remove('copiado'); },1300);
+}
+
+function subLinha(){
+  if(!atual) return '';
+  const cav = atual.os.filter(o=>o.empresa==='Cavallaria').length;
+  const awd = atual.os.filter(o=>o.empresa==='AWDYNA').length;
+  return `Semana ${atual.label} · ${atual.qtd} OS (${cav} Cavallaria · ${awd} AWDYNA)`;
+}
+
+function renderChips(){
+  const w=document.getElementById('weeks');
+  if(!semanas.length){ w.innerHTML=''; document.getElementById('sub').textContent='Nenhuma semana disponível.'; return; }
+  w.innerHTML=semanas.map(s=>`<button class="wk" data-f="${s.arquivo}">${s.label}</button>`).join('');
+  w.querySelectorAll('.wk').forEach(b=>b.onclick=()=>abrir(b.dataset.f));
+}
+
+async function abrir(arquivo){
+  const r=await fetch('/api/posvendas/semana/'+encodeURIComponent(arquivo));
+  if(!r.ok){ if(r.status===401) location.href='/login'; return; }
+  atual=await r.json();
+  document.getElementById('sub').textContent = subLinha();
+  document.querySelectorAll('.wk').forEach(b=>b.classList.toggle('active', b.dataset.f===arquivo));
+  renderPV(atual); renderOS(atual);
+}
+
+async function init(){
+  const r=await fetch('/api/posvendas/semanas');
+  if(!r.ok){ location.href='/login'; return; }
+  semanas=await r.json();
+  if(!semanas.length){ document.getElementById('sub').textContent='Nenhuma semana disponível ainda.'; return; }
+  document.querySelectorAll('#filtros button').forEach(b=>b.onclick=()=>{
+    filtroEmp=b.dataset.e;
+    document.querySelectorAll('#filtros button').forEach(x=>x.classList.toggle('active', x===b));
+    if(atual){ renderPV(atual); renderOS(atual); }
+  });
+  renderChips();
+  abrir(semanas[0].arquivo);
+}
+
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById(b.dataset.p).classList.add('active');
+});
+document.getElementById('sair').onclick=async()=>{ await fetch('/logout',{method:'POST'}); location.href='/login'; };
+
+init();
+</script>
+</body>
+</html>

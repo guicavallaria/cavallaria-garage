@@ -5,6 +5,7 @@ const session = require('express-session');
 const db = require('./db');
 const wa = require('./whatsapp');
 wa.inicializar();
+const posvendas = require('./posvendas');
 
 const app = express();
 app.use(express.json());
@@ -36,6 +37,25 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
+// ---------- Pós-vendas: upload dos relatórios (push do PC) ----------
+// Fica ANTES do auth de sessão porque é chamado por um script (sem cookie do
+// navegador); é protegido por um token no header Authorization. O corpo é o
+// arquivo cru (texto), com limite alto (dashboards semanais são grandes).
+const POSVENDAS_UPLOAD_TOKEN = process.env.POSVENDAS_UPLOAD_TOKEN || '';
+app.post('/api/posvendas/upload', express.text({ limit: '30mb', type: '*/*' }), (req, res) => {
+  if (!POSVENDAS_UPLOAD_TOKEN || req.get('Authorization') !== 'Bearer ' + POSVENDAS_UPLOAD_TOKEN) {
+    return res.status(401).json({ erro: 'token inválido' });
+  }
+  const { tipo, nome } = req.query;
+  if (!tipo || !nome) return res.status(400).json({ erro: 'tipo e nome são obrigatórios' });
+  try {
+    const salvo = posvendas.salvarRelatorio(tipo, nome, req.body || '');
+    res.json({ ok: true, arquivo: salvo });
+  } catch (e) {
+    res.status(400).json({ erro: e.message });
+  }
+});
+
 app.use((req, res, next) => {
   if (req.session.autenticado) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ erro: 'Não autenticado' });
@@ -44,6 +64,21 @@ app.use((req, res, next) => {
 
 // Static files served only after auth check
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------- Pós-vendas: leitura (protegida pela MESMA sessão do agendamento) ----------
+// Só dados não-financeiros saem daqui (a sanitização é feita no módulo posvendas).
+app.get('/api/posvendas/semanas', (req, res) => {
+  res.json(posvendas.listarSemanasUnificadas().map(s => ({
+    arquivo: s.arquivo, label: s.label, qtd: s.qtd, qtdCav: s.qtdCav, qtdAwd: s.qtdAwd
+  })));
+});
+app.get('/api/posvendas/semana/:arquivo', (req, res) => {
+  const nome = path.basename(req.params.arquivo);
+  if (!/^semana-\d{4}-\d{2}-\d{2}$/.test(nome)) return res.status(400).json({ erro: 'invalido' });
+  const s = posvendas.lerSemanaUnificada(nome);
+  if (!s) return res.status(404).json({ erro: 'nao encontrada' });
+  res.json(s);
+});
 
 function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
