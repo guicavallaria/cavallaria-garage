@@ -45,12 +45,10 @@ function casar(agendamento, veiculos) {
   return null;
 }
 
+// "Mais recente" = última modificação (edição, senão criação); empate → maior id.
+const ultimaMudanca = (a) => String(a.atualizado_em || a.criado_em || '');
 function maisRecentePrimeiro(a, b) {
-  return (
-    String(b.atualizado_em || '').localeCompare(String(a.atualizado_em || '')) ||
-    String(b.criado_em || '').localeCompare(String(a.criado_em || '')) ||
-    b.id - a.id
-  );
+  return ultimaMudanca(b).localeCompare(ultimaMudanca(a)) || b.id - a.id;
 }
 
 // Vínculos veículo ativo → agendamento de hoje que o define (o mais recente).

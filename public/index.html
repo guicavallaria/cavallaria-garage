@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Agendamento — Cavallaria Garage</title>
 <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="patio.css" />
 </head>
 <body>
   <header class="topbar">
@@ -32,6 +33,9 @@
   <section id="capacidade" class="capacidade-bar"></section>
 
   <main id="agenda" class="agenda"></main>
+
+  <!-- Painel de pátio: veículos em execução (Onmotor), abaixo da agenda -->
+  <section id="patio" class="patio" aria-label="Painel de pátio"></section>
 
   <!-- Modal de agendamento -->
   <div id="modalAgendamento" class="modal-overlay hidden">
@@ -247,5 +251,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="patio.js"></script>
 </body>
 </html>
