@@ -19,12 +19,16 @@ function ehPaginaLogin(html) {
 }
 
 class OnmotorClient {
-  constructor({ baseUrl, user, pass, fetchImpl = globalThis.fetch, arquivoSessao, log = () => {} } = {}) {
+  // `nome` identifica a fonte (cavallaria | awdyna): cada uma tem seu próprio cookie de sessão.
+  constructor({ nome = 'cavallaria', baseUrl, user, pass, fetchImpl = globalThis.fetch, arquivoSessao, log = () => {} } = {}) {
+    this.nome = nome;
     this.base = (baseUrl || process.env.ONMOTOR_BASE_URL || 'https://cavallaria.onmotor.com.br').replace(/\/$/, '');
     this.user = user ?? process.env.ONMOTOR_USER;
     this.pass = pass ?? process.env.ONMOTOR_PASS;
     this.fetch = fetchImpl;
-    this.arquivoSessao = arquivoSessao === undefined ? path.join(DATA_DIR, 'onmotor-session.json') : arquivoSessao;
+    this.arquivoSessao = arquivoSessao === undefined
+      ? path.join(DATA_DIR, nome === 'cavallaria' ? 'onmotor-session.json' : `onmotor-session-${nome}.json`)
+      : arquivoSessao;
     this.log = log;
     this.jar = new Map();
     this.carregarSessao();

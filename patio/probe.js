@@ -39,23 +39,31 @@ function absorverCookies(res) {
 
 async function req(caminho, opts = {}, hops = 0) {
   const url = caminho.startsWith('http') ? caminho : BASE + caminho;
-  const res = await fetch(url, {
-    ...opts,
-    redirect: 'manual',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; painel-patio-probe)',
-      Accept: 'text/html,application/xhtml+xml',
-      Cookie: cookieHeader(),
-      ...(opts.headers || {}),
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      ...opts,
+      redirect: 'manual',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; painel-patio-probe)',
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: cookieHeader(),
+        ...(opts.headers || {}),
+      },
+    });
+  } catch (e) {
+    const causa = e.cause ? ` | causa: ${e.cause.code || ''} ${e.cause.message || ''}`.trim() : '';
+    throw new Error(`${opts.method || 'GET'} ${url} → ${e.message}${causa}`);
+  }
   absorverCookies(res);
   if ([301, 302, 303, 307, 308].includes(res.status) && hops < 6) {
     const loc = res.headers.get('location');
+    console.log(`  ↪ ${res.status} ${url} → ${loc}`);
     return req(new URL(loc, url).toString(), { method: 'GET' }, hops + 1);
   }
   return { status: res.status, url, html: await res.text() };
 }
+
 
 function contar(html, rx) {
   return (html.match(rx) || []).length;

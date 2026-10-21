@@ -54,11 +54,14 @@
   function render() {
     if (!estado) return;
     const s = estado.sync;
+    const fontesFalha = s.fontes_com_falha || [];
     const alertaSync = s.ultima_falhou
       ? `<span class="patio-sync-aviso falha" title="${esc(s.ultimo_erro || '')}">⚠️ Última sincronização falhou</span>`
       : s.desatualizado
         ? `<span class="patio-sync-aviso velho">⚠️ Sem sincronização há ${s.minutos_desde_ok == null ? 'muito tempo' : Math.round(s.minutos_desde_ok / 60) + ' h'}</span>`
-        : '';
+        : fontesFalha.length
+          ? `<span class="patio-sync-aviso velho" title="Os veículos dessa fonte foram mantidos como estavam">⚠️ ${esc(fontesFalha.map((f) => f.toUpperCase()).join(', '))} não lida na última sincronização</span>`
+          : '';
 
     // Só profissionais com veículo viram coluna (coluna com 0 não aparece — pedido do usuário).
     const comVeiculo = estado.mecanicos.filter((m) => m.veiculos.length > 0);
