@@ -60,8 +60,10 @@
         ? `<span class="patio-sync-aviso velho">⚠️ Sem sincronização há ${s.minutos_desde_ok == null ? 'muito tempo' : Math.round(s.minutos_desde_ok / 60) + ' h'}</span>`
         : '';
 
+    // Só profissionais com veículo viram coluna (coluna com 0 não aparece — pedido do usuário).
+    const comVeiculo = estado.mecanicos.filter((m) => m.veiculos.length > 0);
     sec.dataset.densidade = densidade();
-    sec.style.setProperty('--patio-cols', estado.mecanicos.length || 1);
+    sec.style.setProperty('--patio-cols', comVeiculo.length || 1);
 
     sec.innerHTML = `
       <header class="patio-topo">
@@ -80,11 +82,11 @@
           <div class="patio-pendentes-lista">${estado.pendentes.map(card).join('')}</div>
         </section>` : ''}
       <div class="patio-colunas">
-        ${estado.mecanicos.map((m) => `
+        ${comVeiculo.length ? comVeiculo.map((m) => `
           <section class="patio-col" style="--cor:${esc(m.cor)}">
             <h3 class="patio-col-cab" title="${esc(m.nome)}"><span>${esc(nome1(m.nome))}</span><span class="patio-col-n">${m.veiculos.length}</span></h3>
-            <div class="patio-col-cards">${m.veiculos.map(card).join('') || '<div class="patio-vazio">—</div>'}</div>
-          </section>`).join('')}
+            <div class="patio-col-cards">${m.veiculos.map(card).join('')}</div>
+          </section>`).join('') : '<div class="patio-vazio">Nenhum veículo atribuído a um profissional.</div>'}
       </div>`;
 
     sec.querySelectorAll('.patio-select').forEach((sel) => sel.addEventListener('change', () => atribuir(sel)));
