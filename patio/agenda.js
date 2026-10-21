@@ -27,7 +27,7 @@ function veiculosComOrdens(db, { status = 'ativo', incluirFinalizadosDesde = nul
     ? "SELECT * FROM patio_vehicles WHERE status = 'ativo' OR (status = 'finalizado' AND substr(finished_at, 1, 10) >= ?)"
     : 'SELECT * FROM patio_vehicles WHERE status = ?';
   const veiculos = db.prepare(sql).all(incluirFinalizadosDesde || status);
-  const ordens = db.prepare('SELECT vehicle_id, os_number, finished_at FROM patio_vehicle_orders').all();
+  const ordens = db.prepare('SELECT vehicle_id, os_number, os_id_interno, entrada, finished_at FROM patio_vehicle_orders ORDER BY os_number').all();
   const porVeiculo = new Map();
   for (const o of ordens) {
     if (!porVeiculo.has(o.vehicle_id)) porVeiculo.set(o.vehicle_id, []);
