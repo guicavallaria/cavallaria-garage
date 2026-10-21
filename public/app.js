@@ -100,6 +100,7 @@ async function carregarAgenda() {
     fetch(`/api/agendamentos?data=${dataAtual}`).then((r) => r.json()),
     fetch(`/api/indisponibilidades?data=${dataAtual}`).then((r) => r.json()),
   ]);
+  await carregarIndicadores();
   renderAgenda();
   renderCapacidade();
   verificarDataAviso();
@@ -173,6 +174,23 @@ function calcularTrilhas(ags) {
     resultado.set(ev.id, { col: colEvento.get(ev.id), totalCols: maxCol + 1 });
   }
   return resultado;
+}
+
+// ---------- Indicadores do pátio: ● verde/vermelho nos agendamentos de HOJE ----------
+let indicadoresPatio = {};
+async function carregarIndicadores() {
+  try {
+    const r = await fetch(`/api/patio/indicadores?data=${dataAtual}`).then((r) => r.json());
+    indicadoresPatio = r.indicadores || {};
+  } catch (_) {
+    indicadoresPatio = {};
+  }
+}
+function dotPatio(a) {
+  const cor = indicadoresPatio[a.id];
+  if (!cor) return '';
+  const titulo = cor === 'verde' ? 'Veículo deu entrada no pátio hoje' : 'Veículo ainda não deu entrada hoje';
+  return `<span class="dot-patio ${cor}" title="${titulo}">●</span>`;
 }
 
 function renderAgenda() {
@@ -357,7 +375,7 @@ function renderAgenda() {
               <span class="b-categoria ${CATEGORIA_CLASSE[a.categoria] || ''}">${a.categoria}</span>
               <div class="b-os">${[a.numero_os ? 'OS ' + a.numero_os : '', a.nome_cliente || ''].filter(Boolean).join(' · ')}</div>
               <div class="b-veiculo">${a.veiculo}</div>
-              <div class="b-servico">${a.servico}</div>
+              <div class="b-servico">${dotPatio(a)}${a.servico}</div>
               <div class="b-hora">${a.hora_inicio} – ${horaFimEstimada} (${a.duracao_horas}h${segmentos.length > 1 ? ', com pausa' : ''})</div>
               ${lembreteTag}
               ${extra}
@@ -1337,6 +1355,10 @@ document.getElementById('btnLogout').addEventListener('click', async () => {
 (function conectarSSE() {
   const es = new EventSource('/api/eventos');
   es.addEventListener('atualizar', () => carregarAgenda());
+  es.addEventListener('patio', () => {
+    carregarIndicadores().then(renderAgenda);
+    if (window.Patio) window.Patio.atualizar();
+  });
   es.onerror = async () => {
     es.close();
     const resp = await fetch('/api/mecanicos').catch(() => null);

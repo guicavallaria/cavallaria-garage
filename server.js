@@ -6,6 +6,10 @@ const db = require('./db');
 const wa = require('./whatsapp');
 wa.inicializar();
 const posvendas = require('./posvendas');
+const patioRoutes = require('./patio/routes');
+const { reconciliarAgendaHoje } = require('./patio/agenda');
+const { sincronizar: sincronizarPatio } = require('./patio/sync');
+const { criarScheduler } = require('./patio/scheduler');
 
 const app = express();
 app.use(express.json());
@@ -64,6 +68,9 @@ app.use((req, res, next) => {
 
 // Static files served only after auth check
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------- Painel de pátio (veículos em execução, lidos do Onmotor) ----------
+app.use('/api/patio', patioRoutes.criarRouter({ db, broadcast, log: console.log }));
 
 // ---------- Pós-vendas: leitura (protegida pela MESMA sessão do agendamento) ----------
 // Só dados não-financeiros saem daqui (a sanitização é feita no módulo posvendas).
@@ -296,6 +303,7 @@ app.post('/api/agendamentos', (req, res) => {
   );
 
   broadcast();
+  agendaMudou();
   res.status(201).json({ agendamento: agendamentoCompletoStmt().get(info.lastInsertRowid), conflitos, repeticoes });
 });
 
@@ -384,6 +392,7 @@ app.put('/api/agendamentos/:id/adiantar-apos-conclusao', (req, res) => {
   }
 
   broadcast();
+  agendaMudou(); // pode ter puxado um agendamento de amanhã para hoje
   res.json({ atualizadosHoje, movidoAmanha });
 });
 
@@ -440,7 +449,8 @@ app.put('/api/agendamentos/:id', (req, res) => {
   });
 
   db.prepare(
-    `UPDATE agendamentos SET mecanico_id=?, veiculo=?, numero_os=?, servico=?, categoria=?, data=?, hora_inicio=?, hora_inicio_planejada=?, duracao_horas=?, observacoes=?, telefone=?, nome_cliente=?
+    `UPDATE agendamentos SET mecanico_id=?, veiculo=?, numero_os=?, servico=?, categoria=?, data=?, hora_inicio=?, hora_inicio_planejada=?, duracao_horas=?, observacoes=?, telefone=?, nome_cliente=?,
+       atualizado_em=datetime('now','localtime')
      WHERE id = ?`
   ).run(
     merged.mecanico_id,
@@ -461,12 +471,14 @@ app.put('/api/agendamentos/:id', (req, res) => {
   const repeticoes = criarRepeticoes(merged, Number(req.body.repetir_dias) || 0);
 
   broadcast();
+  agendaMudou();
   res.json({ agendamento: agendamentoCompletoStmt().get(id), conflitos, repeticoes });
 });
 
 app.delete('/api/agendamentos/:id', (req, res) => {
   db.prepare('DELETE FROM agendamentos WHERE id = ?').run(Number(req.params.id));
   broadcast();
+  agendaMudou();
   res.status(204).end();
 });
 
@@ -557,8 +569,19 @@ app.get('/api/eventos', (req, res) => {
   req.on('close', () => sseClients.delete(res));
 });
 
-function broadcast() {
-  for (const res of sseClients) res.write('event: atualizar\ndata: {}\n\n');
+function broadcast(evento = 'atualizar') {
+  for (const res of sseClients) res.write(`event: ${evento}\ndata: {}\n\n`);
+}
+
+// Qualquer mudança em agendamentos pode trocar o responsável no painel de pátio
+// (a agenda de hoje prevalece) e os círculos de entrada. Nunca derruba a rota.
+function agendaMudou() {
+  try {
+    reconciliarAgendaHoje(db);
+  } catch (e) {
+    console.error('patio: falha ao reconciliar com a agenda:', e.message);
+  }
+  broadcast('patio');
 }
 
 setInterval(() => {
@@ -790,6 +813,7 @@ app.post('/api/admin/importar', (req, res) => {
     });
     run();
     db.exec('PRAGMA foreign_keys = ON');
+    agendaMudou();
     res.json({ ok: true, mecanicos: mecanicos.length, agendamentos: agendamentos.length });
   } catch (err) {
     console.error('Importar erro:', err);
@@ -803,3 +827,13 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Local:        http://localhost:${PORT}`);
   console.log(`  Rede (outros computadores): http://${getLanIp()}:${PORT}`);
 });
+
+// ---------- Painel de pátio: sincronização automática com o Onmotor ----------
+// Desligue com PATIO_SYNC_ENABLED=false. Sem credenciais, só o botão manual existe (e avisa).
+if (process.env.PATIO_SYNC_ENABLED !== 'false') {
+  if (!process.env.ONMOTOR_USER || !process.env.ONMOTOR_PASS) {
+    console.log('patio: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
+  } else {
+    criarScheduler({ db, sincronizar: (o) => sincronizarPatio(db, { ...o, broadcast }) }).iniciar();
+  }
+}
