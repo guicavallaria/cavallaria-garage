@@ -137,4 +137,8 @@ for (const [chave, valor] of Object.entries(seedConfig)) insertConfig.run(chave,
 // Atualiza o limite se ainda estiver em '8'
 db.prepare("UPDATE config SET valor = '8.5' WHERE chave = 'limite_horas_dia' AND valor = '8'").run();
 
+// Migrations reversíveis (painel de pátio etc.) — rodam depois do esquema base acima.
+const aplicadas = require('./migrations').aplicar(db);
+if (aplicadas.length) console.log('migrations aplicadas:', aplicadas.join(', '));
+
 module.exports = db;
