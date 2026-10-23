@@ -4,7 +4,9 @@
 
 1. **A cada 5 minutos, todos os dias,** o app lê a caixa **launchcavallaria@gmail.com** pela API oficial do Gmail.
    - A permissão é **só de leitura**.
-   - Entram e-mails com PDF anexo cujo remetente ou assunto contenha "LAUNCH".
+   - O scanner manda de `diagnostic_report@cnlaunch.com`, **sem anexo**: o e-mail traz um **link** para o PDF no servidor da Launch (`…dbscar.com/ait_report/….pdf`), e o assunto é o nome do arquivo. O app baixa o PDF por esse link, só de servidores da Launch (`dbscar.com`, `cnlaunch.com`, `x431.com`) e por HTTPS.
+   - Também entram e-mails com "launch" no assunto e PDF anexo, encaminhados à mão.
+   - O mesmo relatório em dois e-mails entra uma vez só: o nome do arquivo já traz data e hora.
    - Cada e-mail é processado uma vez só, controlado pelo `message_id` em `launch_emails`.
 2. **Leitura do nome do arquivo:** a marca e o chassi saem do nome. Exemplo: `BMW_WBAGL61002DM57925_AllSystems.pdf` dá BMW e o chassi WBAGL61002DM57925.
 3. **Armazenamento:** o PDF vai para o bucket, com a data e hora do e-mail.
@@ -52,7 +54,7 @@ Com essas variáveis o app liga a leitura sozinho. Sem elas, a leitura fica desl
 | Variável | Para que serve |
 |---|---|
 | `LAUNCH_INTERVAL_MIN` | Muda o intervalo, que é 5 minutos por padrão |
-| `LAUNCH_GMAIL_BUSCA` | Troca a busca do Gmail. A padrão é `has:attachment filename:pdf (from:launch OR subject:launch) newer_than:30d` |
+| `LAUNCH_GMAIL_BUSCA` | Troca a busca do Gmail. A padrão é `(from:cnlaunch.com OR from:dbscar.com OR (subject:launch has:attachment filename:pdf)) newer_than:30d` |
 
 **Se o Google invalidar a autorização** (senha da conta trocada, acesso revogado), a página "🔬 Launch" mostra o erro "A autorização do Gmail expirou ou foi revogada". Nesse caso, rode o passo 6 de novo e troque o `GMAIL_REFRESH_TOKEN` no Railway.
 

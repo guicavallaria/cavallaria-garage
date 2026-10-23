@@ -251,3 +251,56 @@ test('rota: envio manual de PDF pelo card e lista de não vinculados', async () 
     srv.close();
   }
 });
+
+// ---------- relatório por link (o scanner não anexa o PDF) ----------
+const msgLink = (id, nome, url) => ({
+  id,
+  msg: {
+    id, internalDate: String(Date.parse('2026-10-23T18:44:36.000Z')),
+    payload: {
+      headers: [{ name: 'Subject', value: nome }, { name: 'From', value: 'diagnostic_report@cnlaunch.com' }],
+      mimeType: 'multipart/alternative',
+      parts: [
+        { mimeType: 'text/plain', body: { data: Buffer.from(`Report: ${url}\nhttps://www.cnlaunch.com/`).toString('base64url') } },
+        { mimeType: 'text/html', body: { data: Buffer.from(`<a href="${url.replace(/&/g, '&amp;')}">PDF</a> <a href="https://evil.example.com/x.pdf">x</a>`).toString('base64url') } },
+      ],
+    },
+  },
+});
+
+function comDownloads(base, arquivos) {
+  const baixados = [];
+  const fetchImpl = async (url, opts) => {
+    if (arquivos[url] !== undefined) {
+      baixados.push(url);
+      const corpo = arquivos[url];
+      return { ok: true, status: 200, url, headers: { get: () => String(corpo.length) }, arrayBuffer: async () => corpo };
+    }
+    return base(url, opts);
+  };
+  return { fetchImpl, baixados };
+}
+
+test('Gmail: relatório do scanner por link (servidor da Launch), nome do assunto, e o mesmo relatório em 2 e-mails entra 1 vez', async () => {
+  const { db, card } = banco();
+  const nome = `BMW_${VIN}_AllSystemDTC_20261023154436.pdf`;
+  const url = 'https://usglfile.dbscar.com/ait_report/20261024/92/1e/abc123def456.pdf?sig=1&x=2';
+  const f = gmailFalso({ mensagens: [msgLink('l1', nome, url), msgLink('l2', nome, url)] });
+  const d = comDownloads(f.fetchImpl, { [url]: PDF('do link') });
+  const fonte = new ClienteGmail({ env: ENV, fetchImpl: d.fetchImpl });
+  const r = await sincronizarLaunch(db, storage, fonte, { log: () => {} });
+  assert.deepEqual({ ok: r.ok, emails: r.emails, novos: r.novos, vinculados: r.vinculados }, { ok: true, emails: 2, novos: 1, vinculados: 1 });
+  assert.deepEqual(d.baixados, [url, url], 'só o link da Launch, nunca o de outro servidor');
+  const lista = await launch.listarDoCard(db, storage, card.id);
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].nome_arquivo, nome);
+});
+
+test('Gmail: links fora dos servidores da Launch ou sem https são ignorados; redirecionamento para fora é recusado', async () => {
+  const { linksPdf } = require('../kanban/gmail');
+  const parte = (t) => ({ mimeType: 'text/plain', body: { data: Buffer.from(t).toString('base64url') } });
+  assert.deepEqual(linksPdf(parte('a http://usglfile.dbscar.com/r.pdf b https://dbscar.com.evil.io/r.pdf c https://x.dbscar.com/r.html')), []);
+  assert.deepEqual(linksPdf(parte('ok https://usglfile.dbscar.com/r/1.pdf.')), ['https://usglfile.dbscar.com/r/1.pdf']);
+  const g = new ClienteGmail({ env: ENV, fetchImpl: async (u) => ({ ok: true, status: 200, url: 'https://evil.example.com/r.pdf', headers: { get: () => null }, arrayBuffer: async () => PDF() }) });
+  await assert.rejects(g.baixarLink('https://usglfile.dbscar.com/r/1.pdf'), /saiu do servidor da Launch/);
+});

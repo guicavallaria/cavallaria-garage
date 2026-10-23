@@ -7,8 +7,13 @@
 // Sem biblioteca do Google (pesada): três chamadas HTTPS com o fetch do Node.
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
-// E-mails do scanner: remetente ou assunto "LAUNCH", com PDF anexo, dos últimos 30 dias.
-const BUSCA_PADRAO = 'has:attachment filename:pdf (from:launch OR subject:launch) newer_than:30d';
+// E-mails do scanner dos últimos 30 dias. O scanner (diagnostic_report@cnlaunch.com) NÃO anexa o PDF:
+// manda um link para o relatório no servidor da Launch (…dbscar.com/ait_report/….pdf) e põe o nome
+// do arquivo no assunto. E-mail com "launch" no assunto e PDF anexo (encaminhado à mão) também vale.
+const BUSCA_PADRAO = '(from:cnlaunch.com OR from:dbscar.com OR (subject:launch has:attachment filename:pdf)) newer_than:30d';
+// Só baixa relatório de servidores da Launch, por HTTPS.
+const HOSTS_LAUNCH = /(^|\.)(dbscar\.com|cnlaunch\.com|x431\.com)$/i;
+const MAX_LINK_BYTES = 31 * 1024 * 1024;
 
 class ErroGmail extends Error {}
 
@@ -31,6 +36,27 @@ function anexosPdf(parte, out = []) {
   }
   for (const p of parte.parts || []) anexosPdf(p, out);
   return out;
+}
+
+// Links de PDF de servidores da Launch no corpo do e-mail (texto e HTML).
+function linksPdf(parte) {
+  const textos = [];
+  const juntar = (p) => {
+    if (!p) return;
+    if (p.body && p.body.data && /^text\//i.test(p.mimeType || '')) textos.push(b64url(p.body.data).toString('utf8'));
+    for (const f of p.parts || []) juntar(f);
+  };
+  juntar(parte);
+  const vistos = new Set();
+  for (const t of textos) {
+    for (const bruto of t.match(/https:\/\/[^\s"'<>()]+/g) || []) {
+      const limpo = bruto.replace(/&amp;/g, '&').replace(/[.,;]+$/, '');
+      let u;
+      try { u = new URL(limpo); } catch (_) { continue; }
+      if (u.protocol === 'https:' && HOSTS_LAUNCH.test(u.hostname) && /\.pdf$/i.test(u.pathname)) vistos.add(u.toString());
+    }
+  }
+  return [...vistos];
 }
 
 class ClienteGmail {
@@ -91,12 +117,36 @@ class ClienteGmail {
       recebidoEm: new Date(Number(msg.internalDate) || Date.parse(cabecalho(msg, 'Date')) || Date.now()).toISOString(),
       assunto: cabecalho(msg, 'Subject'),
       remetente: cabecalho(msg, 'From'),
-      anexos: anexosPdf(msg.payload).map((a) => ({
-        nome: a.nome,
-        carregar: async () => (a.dados ? b64url(a.dados)
-          : b64url((await this.get(`/messages/${encodeURIComponent(msg.id)}/attachments/${encodeURIComponent(a.attachmentId)}`)).data)),
-      })),
+      anexos: [
+        ...anexosPdf(msg.payload).map((a) => ({
+          nome: a.nome,
+          carregar: async () => (a.dados ? b64url(a.dados)
+            : b64url((await this.get(`/messages/${encodeURIComponent(msg.id)}/attachments/${encodeURIComponent(a.attachmentId)}`)).data)),
+        })),
+        ...this.anexosPorLink(msg),
+      ],
     };
+  }
+
+  // Relatório por link (o jeito do scanner). Nome: o do assunto quando ele é o nome do PDF.
+  anexosPorLink(msg) {
+    const links = linksPdf(msg.payload);
+    const assunto = cabecalho(msg, 'Subject').trim();
+    return links.map((link) => ({
+      nome: links.length === 1 && /^[\w.() -]+\.pdf$/i.test(assunto) ? assunto : decodeURIComponent(new URL(link).pathname.split('/').pop()),
+      carregar: () => this.baixarLink(link),
+    }));
+  }
+
+  async baixarLink(link) {
+    const r = await this.fetch(link, { redirect: 'follow' });
+    const final = new URL(r.url || link);
+    if (final.protocol !== 'https:' || !HOSTS_LAUNCH.test(final.hostname)) throw new ErroGmail('link do relatório saiu do servidor da Launch');
+    if (!r.ok) throw new ErroGmail(`servidor da Launch respondeu ${r.status} ao baixar o relatório`);
+    if (Number(r.headers && r.headers.get && r.headers.get('content-length')) > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais');
+    const bytes = Buffer.from(await r.arrayBuffer());
+    if (bytes.length > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais');
+    return bytes;
   }
 
   // Mensagens ainda não processadas (o controle por message_id fica no banco).
@@ -108,4 +158,4 @@ class ClienteGmail {
   }
 }
 
-module.exports = { ClienteGmail, ErroGmail, configurado, anexosPdf, BUSCA_PADRAO };
+module.exports = { ClienteGmail, ErroGmail, configurado, anexosPdf, linksPdf, BUSCA_PADRAO };

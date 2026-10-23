@@ -107,6 +107,10 @@ async function importarRelatorio(db, storage, { origem, messageId = null, nomeAr
   if (messageId && db.prepare('SELECT 1 FROM launch_relatorios WHERE message_id = ? AND nome_arquivo = ?').get(messageId, nome)) {
     return { duplicado: true };
   }
+  // O scanner às vezes manda o mesmo relatório em dois e-mails; o nome já traz data e hora até o segundo.
+  if (origem === 'email' && /\d{12,}/.test(nome) && db.prepare("SELECT 1 FROM launch_relatorios WHERE origem = 'email' AND nome_arquivo = ? AND removido_em IS NULL").get(nome)) {
+    return { duplicado: true };
+  }
   const { marca, chassi } = extrairDoNome(nome);
   const d = new Date(agora);
   const chave = `launch/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.pdf`;
