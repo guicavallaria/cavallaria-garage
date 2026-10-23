@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#1f2330" />
 <title>Administração do kanban — Cavallaria Garage</title>
+<link rel="manifest" href="/kanban/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<link rel="apple-touch-icon" href="/kanban/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kanban OS" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="stylesheet" href="/kanban/kanban.css" />
 <style>
   .adm { max-width: 980px; margin: 0 auto; padding: 14px 16px 60px; }
@@ -38,7 +45,8 @@
 <body>
   <header class="kb-topbar">
     <a href="/kanban/" class="kb-voltar">← Kanban</a>
-    <h1>Administração do kanban</h1>
+    <h1>Administração</h1>
+    <div class="kb-acoes"><span class="kb-conta" data-conta></span></div>
   </header>
   <main class="adm">
     <section class="adm-mec" aria-labelledby="admMecTitulo">
@@ -66,6 +74,8 @@
     </div>
   </main>
   <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
+  <script src="/kanban/sessao.js"></script>
+  <script src="/kanban/admin-acesso.js"></script>
   <script src="/kanban/admin.js"></script>
 </body>
 </html>

@@ -19,6 +19,17 @@
   let modoBusca = 'ativos';
   let cardAberto = null; // { id, card } do painel
   let operador = ler('l', 'kb.operador') || '';
+  // Login de mecânico: o operador é sempre ele (o servidor também força). Contas de setor
+  // (Recepção, Pátio...) são usadas por várias pessoas e continuam escolhendo quem é.
+  let operadorFixo = false;
+  if (window.KanbanSessao) {
+    window.KanbanSessao.pronto.then((s) => {
+      if (!s || !s.usuario || s.usuario.perfil !== 'mecanico') return;
+      operadorFixo = true;
+      operador = s.usuario.nome;
+      mostrarOperador();
+    });
+  }
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmtData = new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -46,6 +57,7 @@
     const r = await fetch(caminho, init);
     if (r.status === 401) { location.href = '/login'; throw new Error('sessão expirada'); }
     const corpo = await r.json().catch(() => ({}));
+    if (r.status === 403 && corpo.trocar_senha) { location.href = '/conta.html?primeiro=1'; throw new Error(corpo.erro); }
     if (!r.ok) throw Object.assign(new Error(corpo.erro || `erro ${r.status}`), { status: r.status, corpo });
     return corpo;
   }
@@ -83,7 +95,7 @@
   }
   // Antes de qualquer registro: se o aparelho ainda não tem operador, pergunta.
   async function garantirOperador() {
-    if (operador) return operador;
+    if (operador || operadorFixo) return operador;
     const nome = await abrirModalOperador();
     return nome || null;
   }
@@ -102,7 +114,7 @@
     fecharModalOperador(operador);
   });
   $('kbOperadorCancelar').addEventListener('click', () => fecharModalOperador(null));
-  $('kbOperador').addEventListener('click', () => abrirModalOperador());
+  $('kbOperador').addEventListener('click', () => { if (!operadorFixo) abrirModalOperador(); });
 
   function definirOperador(nome) {
     operador = nome;
@@ -384,10 +396,32 @@
         ${lista.length ? `<ul class="kb-launch-lista">${lista.map((r) => `<li>
             <a href="${esc(r.url)}" target="_blank" rel="noopener">📄 ${r.principal ? '<strong>Principal</strong>' : 'Adicional'} · ${dataBR(r.relatorio_em)}</a>
             <small>${esc(r.marca || '')} ${r.origem === 'manual' ? `· enviado por ${esc(r.vinculado_por || '')}` : (r.vinculado_por && r.vinculado_por !== 'automático' ? `· vinculado por ${esc(r.vinculado_por)}` : '· do e-mail')}</small>
-            ${c.arquivado_em ? '' : `<button type="button" class="kb-link-pequeno" data-acao="launch-desvincular" data-id="${r.id}">desvincular</button>`}
+            ${c.arquivado_em ? '' : `<button type="button" class="kb-link-pequeno kb-so-gestor" data-acao="launch-desvincular" data-id="${r.id}">desvincular</button>`}
           </li>`).join('')}</ul>` : ''}
-      </div>`;
+      </div>
+      <details class="kb-links kb-so-gestor" data-links="${c.id}"><summary>🔗 Links enviados ao cliente</summary><div class="kb-links-corpo">Carregando…</div></details>`;
   }
+
+  // Links públicos do card (PDF para o cliente, vídeos do QR): o gestor confere e cancela.
+  async function carregarLinks(det) {
+    const corpo = det.querySelector('.kb-links-corpo');
+    try {
+      const lista = await api(`/api/kanban/cards/${det.dataset.links}/links`);
+      const nome = (l) => (l.finalidade === 'pdf_cliente'
+        ? `PDF ${esc(String(l.pdf_tipo || '').replace(/_/g, ' '))}${l.via && l.via !== 'unica' ? ` (via ${esc(l.via)})` : ''}${l.versao ? ` v${l.versao}` : ''}`
+        : `${l.midia_tipo === 'audio' ? 'Áudio' : 'Vídeo'} do QR no PDF`);
+      corpo.innerHTML = lista.length ? `<ul class="kb-links-lista">${lista.map((l) => `<li>
+          <span>${nome(l)} · criado ${dataBR(l.criado_em)} por ${esc(l.criado_por)} · ${l.acessos} acesso(s)</span>
+          <small>${l.revogado_em ? `cancelado por ${esc(l.revogado_por)} em ${dataBR(l.revogado_em)}` : (l.ativo ? `vale até ${dataBR(l.expira_em)}` : 'expirado')}</small>
+          ${l.ativo ? `<button type="button" class="kb-link-pequeno" data-acao="link-revogar" data-id="${l.id}">cancelar link</button>` : ''}
+        </li>`).join('')}</ul>` : '<p class="kb-dica">Nenhum link criado para este card.</p>';
+    } catch (e) {
+      corpo.textContent = e.message;
+    }
+  }
+  document.addEventListener('toggle', (ev) => {
+    if (ev.target.matches && ev.target.matches('details[data-links]') && ev.target.open) carregarLinks(ev.target);
+  }, true);
 
   async function enviarLaunch(arquivo) {
     if (!arquivo || !cardAberto) return;
@@ -464,7 +498,7 @@
     let acoes;
     if (c.arquivado_em) {
       acoes = `<p class="kb-arquivado-info">Arquivado em ${dataBR(c.arquivado_em)} por ${esc(c.arquivado_por || '—')}. Ao desarquivar, volta para "${esc(fase ? fase.nome : '')}".</p>
-        <div class="kb-acoes-card"><button type="button" class="kb-botao" data-acao="desarquivar">Desarquivar</button></div>`;
+        <div class="kb-acoes-card kb-so-gestor"><button type="button" class="kb-botao" data-acao="desarquivar">Desarquivar</button></div>`;
     } else if (modo === 'mover') {
       acoes = `<h3 class="kb-sec">Mover para…</h3>
         <div class="kb-lista-fases">${estado.fases.map((f) =>
@@ -477,7 +511,7 @@
     } else {
       acoes = `<div class="kb-acoes-card">
           <button type="button" class="kb-botao" data-acao="mover">Mover para…</button>
-          <button type="button" class="kb-botao kb-botao-sec" data-acao="arquivar">Arquivar</button>
+          <button type="button" class="kb-botao kb-botao-sec kb-so-gestor" data-acao="arquivar">Arquivar</button>
         </div>
         <label class="kb-campo-mecanico">🔧 Mecânico
           <select data-acao="mecanico">
@@ -754,6 +788,18 @@
       case 'desarquivar': b.disabled = true; await desarquivar(c.id); break;
 
       case 'launch-anexar': $('kbInLaunch').click(); break;
+      case 'link-revogar': {
+        if (!b.dataset.confirmar) { b.dataset.confirmar = '1'; b.textContent = 'confirmar cancelamento?'; break; }
+        const op = await garantirOperador();
+        if (!op) break;
+        try {
+          await api(`/api/kanban/links/${b.dataset.id}/revogar`, { json: { operador: op } });
+          avisar('Link cancelado: o cliente não consegue mais abrir');
+          const det = b.closest('details[data-links]');
+          if (det) carregarLinks(det);
+        } catch (e) { avisar(e.message, true); }
+        break;
+      }
       case 'launch-desvincular': {
         if (!b.dataset.confirmar) { b.dataset.confirmar = '1'; b.textContent = 'confirmar desvínculo?'; break; }
         const op = await garantirOperador();

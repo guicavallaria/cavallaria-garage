@@ -1345,6 +1345,13 @@ document.getElementById('btnGerarLembretes').addEventListener('click', async () 
   });
 });
 
+// ---------- Conta (login individual): pós-vendas só para Recepção e Gerência ----------
+fetch('/api/acesso/me').then((r) => (r.ok ? r.json() : null)).then((s) => {
+  if (!s || !s.usuario) return;
+  document.getElementById('lnkConta').textContent = `🔑 ${s.usuario.nome}`;
+  if (!s.permissoes.posvendas) document.getElementById('lnkPosvendas').remove();
+}).catch(() => null);
+
 // ---------- Logout ----------
 document.getElementById('btnLogout').addEventListener('click', async () => {
   await fetch('/logout', { method: 'POST' });

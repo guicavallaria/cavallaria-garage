@@ -5,6 +5,7 @@
 // ser revogada, então o link aponta para o app (/m/<token>), que confere validade e revogação
 // e só então redireciona para uma URL assinada de 15 minutos.
 const crypto = require('crypto');
+const { registrar: registrarAuditoria } = require('../acesso/auditoria');
 const { ErroAcao, validarOperador } = require('./acoes');
 
 const DIAS_PADRAO = 7;
@@ -52,6 +53,15 @@ function linksDaMidia(db, midiaId) {
     .all(Number(midiaId)).map((l) => ({ ...l, url: null }));
 }
 
+// Links do card (vídeos dos QR e PDFs enviados ao cliente), para o gestor conferir e cancelar.
+function linksDoCard(db, cardId, { agora = new Date() } = {}) {
+  return db.prepare(`SELECT l.id, l.finalidade, l.expira_em, l.revogado_em, l.revogado_por, l.criado_por, l.criado_em, l.acessos,
+        m.tipo AS midia_tipo, p.tipo AS pdf_tipo, p.via, p.versao
+      FROM kb_links l JOIN kb_midias m ON m.id = l.midia_id LEFT JOIN kb_pdfs p ON p.midia_id = m.id
+      WHERE m.card_id = ? ORDER BY l.id DESC`).all(Number(cardId))
+    .map((l) => ({ ...l, ativo: !l.revogado_em && Date.parse(l.expira_em) >= agora.getTime() }));
+}
+
 // Rota pública GET /m/:token (montada no server.js ANTES do login).
 function rotaPublica({ db, storage, log = console.log }) {
   return async (req, res) => {
@@ -62,6 +72,10 @@ function rotaPublica({ db, storage, log = console.log }) {
         <h1 style="font-size:20px">Cavallaria Garage</h1><p>${r.erro}</p><p>(46) 2604-0612</p></body></html>`);
       return;
     }
+    registrarAuditoria(db, {
+      operador: 'Cliente (link)', acao: 'link_publico_aberto', cardId: r.midia.card_id, entidade: 'links', entidadeId: r.link.id,
+      detalhes: { finalidade: r.link.finalidade }, ip: req.ip,
+    });
     try {
       const ext = { video: 'mp4', audio: 'm4a', pdf: 'pdf', foto: 'jpg' }[r.midia.tipo] || 'bin';
       const url = await storage.urlVer(r.midia.chave_objeto, { nomeArquivo: `cavallaria-${r.midia.id}.${ext}`, contentType: r.midia.mime });
@@ -73,4 +87,4 @@ function rotaPublica({ db, storage, log = console.log }) {
   };
 }
 
-module.exports = { criarLink, resolverLink, revogarLink, linksDaMidia, rotaPublica, baseUrl, DIAS_PADRAO };
+module.exports = { criarLink, resolverLink, revogarLink, linksDaMidia, linksDoCard, rotaPublica, baseUrl, DIAS_PADRAO };

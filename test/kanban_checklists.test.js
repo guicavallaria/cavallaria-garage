@@ -194,7 +194,9 @@ test('finalizar: grava fim, resume na linha do tempo e gera o PDF como versão n
   const evPdf = evs.filter((e) => e.tipo === 'pdf');
   assert.equal(evPdf.length, 2);
   assert.match(evPdf[0].texto, /PDF "Vistoria de Entrada" gerado \(versão 2\)/);
-  assert.match(evPdf[0].midia.url, /response-content-disposition=inline%3B%20filename%3D%22vistoria-entrada-v2\.pdf%22/);
+  // o PDF abre pela rota auditada do app, que assina a URL com o nome certo do arquivo
+  assert.equal(evPdf[0].midia.url, `/api/kanban/midias/${v2.midia_id}/abrir`);
+  assert.match((await require('../kanban/arquivos').urlDoPdf(db, storage, v2.midia_id)).url, /response-content-disposition=inline%3B%20filename%3D%22vistoria-entrada-v2\.pdf%22/);
   const lista = await chk.listarDoCard(db, storage, c.id);
   assert.equal(lista[0].status, 'finalizado');
   assert.deepEqual(lista[0].pdfs.map((p) => p.versao), [2, 1]);

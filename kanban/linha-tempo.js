@@ -7,6 +7,7 @@
 //   aparece na linha do tempo.
 const crypto = require('crypto');
 const { ErroAcao, validarOperador } = require('./acoes');
+const { caminhoAbrir } = require('./arquivos');
 
 const agoraUtc = () => new Date().toISOString();
 const MAX_TEXTO = 5000;
@@ -206,16 +207,6 @@ async function confirmarEnvio(db, storage, midiaId, { legenda, operador }, { ago
 }
 
 // ---------- leitura ----------
-// Nome sugerido no download do PDF: "vistoria-entrada-v2.pdf".
-function nomePdf(e) {
-  let dados = {};
-  try { dados = JSON.parse(e.dados || '{}'); } catch (_) { /* dados antigos */ }
-  const tipo = dados.tipo || (/Vistoria de Entrada/i.test(e.texto || '') ? 'vistoria_entrada' : null);
-  const base = tipo ? tipo.replace(/_/g, '-') : `documento-${e.id}`;
-  const via = dados.via && dados.via !== 'unica' ? `-${dados.via}` : '';
-  return `${base}${via}-v${dados.versao || 1}.pdf`;
-}
-
 async function listarEventos(db, storage, cardId) {
   const eventos = db.prepare(`
     SELECT e.id, e.tipo, e.texto, e.dados, e.operador_nome, e.criado_em, e.editado_em,
@@ -236,9 +227,8 @@ async function listarEventos(db, storage, cardId) {
         largura: e.largura, altura: e.altura, url: null, miniatura_url: null,
       };
       if (podeAssinar) {
-        midia.url = e.m_tipo === 'pdf'
-          ? await storage.urlVer(e.chave_objeto, { nomeArquivo: nomePdf(e), contentType: 'application/pdf' })
-          : await storage.urlVer(e.chave_objeto);
+        // PDF abre pela rota do app (download auditado)
+        midia.url = e.m_tipo === 'pdf' ? caminhoAbrir(e.m_id) : await storage.urlVer(e.chave_objeto);
         midia.miniatura_url = e.chave_miniatura ? await storage.urlVer(e.chave_miniatura) : null;
       }
     }

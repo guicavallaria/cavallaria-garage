@@ -8,6 +8,7 @@
 //  - depois de finalizado, toda alteração (resposta, mídia, comentário, peça) guarda o
 //    anterior, o operador e a hora, e vai para a linha do tempo do card.
 const { ErroAcao, validarOperador } = require('./acoes');
+const { caminhoAbrir } = require('./arquivos');
 const { formatarBR } = require('./datas');
 
 const agoraUtc = () => new Date().toISOString();
@@ -538,11 +539,11 @@ async function listarDoCard(db, storage, cardId) {
   for (const e of execs) {
     const pdfs = [];
     // Mais nova primeiro; na mesma versão, a via que vai para o cliente antes da via orçamento.
-    for (const p of db.prepare(`SELECT p.id, p.versao, p.via, p.gerado_em, p.gerado_por, p.tipo, md.chave_objeto FROM kb_pdfs p JOIN kb_midias md ON md.id = p.midia_id
+    for (const p of db.prepare(`SELECT p.id, p.midia_id, p.versao, p.via, p.gerado_em, p.gerado_por, p.tipo FROM kb_pdfs p JOIN kb_midias md ON md.id = p.midia_id
         WHERE p.execucao_id = ? ORDER BY p.versao DESC, CASE p.via WHEN 'orcamento' THEN 1 ELSE 0 END`).all(e.id)) {
-      const nome = `${p.tipo.replace(/_/g, '-')}${p.via === 'unica' ? '' : `-${p.via}`}-v${p.versao}.pdf`;
+      // abre pela rota do app (download auditado)
       pdfs.push({ id: p.id, versao: p.versao, via: p.via, gerado_em: p.gerado_em, gerado_por: p.gerado_por,
-        url: storage && storage.configurado ? await storage.urlVer(p.chave_objeto, { nomeArquivo: nome, contentType: 'application/pdf' }) : null });
+        url: storage && storage.configurado ? caminhoAbrir(p.midia_id) : null });
     }
     out.push({ id: e.id, codigo: e.codigo, nome: e.nome, status: e.status, feito_por: e.feito_por, iniciado_em: e.iniciado_em, finalizado_em: e.finalizado_em, pdfs });
   }

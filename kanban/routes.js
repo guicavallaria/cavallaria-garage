@@ -12,6 +12,26 @@ const pdfs = require('./pdf');
 const links = require('./links');
 const launch = require('./launch');
 const launchFonte = require('./launch-fonte');
+const arquivos = require('./arquivos');
+const perfis = require('../acesso/perfis');
+const auditoria = require('../acesso/auditoria');
+
+// Login de mecânico assina tudo com o próprio nome: o operador (e o "feito por" do checklist)
+// vem da sessão, nunca do que o navegador mandou. Os demais perfis são contas de setor,
+// usadas por mais de uma pessoa, e continuam escolhendo o operador.
+function operadorDoLogin(req, res, next) {
+  const u = req.session && req.session.usuario;
+  if (u && u.perfil === 'mecanico') {
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+      req.body.operador = u.nome;
+      if ('feito_por' in req.body) req.body.feito_por = u.nome;
+    }
+    if (req.query && req.query.operador !== undefined) {
+      Object.defineProperty(req, 'query', { value: { ...req.query, operador: u.nome }, configurable: true, writable: true });
+    }
+  }
+  next();
+}
 
 const primeiroNome = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
@@ -81,6 +101,17 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     return checklists.historicoItem(db, execId, itemId).map((h) => ({ ...h, resumo: checklists.resumoValor(item, h.valor_anterior) }));
   };
   const r = express.Router();
+  r.use(operadorDoLogin);
+  r.use(auditoria.middlewareKanban(db));
+
+  // Permissões por perfil (acesso/perfis.js). Sem usuário na sessão (testes do router) passa:
+  // no app, o server.js só deixa chegar aqui quem está logado.
+  const exigir = (req, permissao, msg) => {
+    const u = req.session && req.session.usuario;
+    if (u && !perfis.pode(u, permissao)) throw new acoes.ErroAcao(403, msg);
+  };
+  const exigirGestor = (req) => exigir(req, 'gestor', 'Seu perfil não pode fazer isto (Recepção, Compras, Pátio ou Gerência)');
+  const exigirGerencia = (req) => exigir(req, 'admin', 'Só a Gerência pode alterar isto');
 
   r.get('/estado', (req, res) => {
     const fases = db.prepare('SELECT id, nome FROM kb_fases ORDER BY ordem').all();
@@ -224,8 +255,9 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   r.post('/checklists/pecas/:id/remover', (req, res) => responder(res, () =>
     checklists.removerPeca(db, req.params.id, { operador: corpo(req).operador }), log));
 
-  // Link de 7 dias para mandar o PDF ao cliente (WhatsApp). Revogar: Etapa 7 (gestor).
+  // Link de 7 dias para mandar o PDF ao cliente (WhatsApp): gestor.
   r.post('/pdfs/:id/link', (req, res) => responder(res, () => {
+    exigirGestor(req);
     const p = db.prepare('SELECT midia_id, via FROM kb_pdfs WHERE id = ?').get(Number(req.params.id));
     if (!p) throw new acoes.ErroAcao(404, 'PDF não encontrado');
     // A via orçamento (peças e horas) é interna: nunca sai por link para o cliente.
@@ -233,11 +265,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     return links.criarLink(db, p.midia_id, { finalidade: 'pdf_cliente', operador: corpo(req).operador });
   }, log));
 
-  // ---------- administração (mecânicos e modelos de checklist) ----------
-  // Ponto único de permissão da área de administração. Hoje o app tem só a senha
-  // compartilhada, então quem está logado passa. Na Etapa 7 (logins individuais) esta
-  // função passa a liberar apenas o login da Gerência (pedido de 23/10/2026).
-  const exigirGerencia = (req) => { if (req.session && req.session.usuario && req.session.usuario.perfil !== 'gerencia') throw new acoes.ErroAcao(403, 'Só a Gerência pode alterar isto'); };
+  // ---------- administração (mecânicos, modelos de checklist, auditoria): só Gerência ----------
   const mecanicos = require('./mecanicos');
   r.get('/admin/mecanicos', (req, res) => responder(res, () => { exigirGerencia(req); return mecanicos.listar(db, { incluirRemovidos: true }); }, log));
   r.post('/admin/mecanicos', (req, res) => responder(res, () => {
@@ -260,15 +288,15 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     estado: launchFonte.estadoLaunch(db), relatorios: await launch.listarNaoVinculados(db, storage),
   }), log));
 
-  // Vincular/desvincular à mão: Gerência (Etapa 7 restringe pelo login).
+  // Vincular/desvincular à mão: gestor.
   r.post('/launch/:id/vincular', (req, res) => responder(res, () => {
-    exigirGerencia(req);
+    exigirGestor(req);
     const out = launch.vincularManual(db, req.params.id, corpo(req).card_id, { operador: corpo(req).operador });
     broadcast('kanban');
     return out;
   }, log));
   r.post('/launch/:id/desvincular', (req, res) => responder(res, () => {
-    exigirGerencia(req);
+    exigirGestor(req);
     const out = launch.desvincular(db, req.params.id, { operador: corpo(req).operador });
     broadcast('kanban');
     return out;
@@ -303,10 +331,10 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   });
 
   const modelos = require('./modelos');
-  r.get('/admin/modelos', (req, res) => responder(res, () => ({
+  r.get('/admin/modelos', (req, res) => responder(res, () => (exigirGerencia(req), {
     modelos: modelos.listar(db), tipos_componente: modelos.TIPOS_COMPONENTE, tipos_secao: modelos.TIPOS_SECAO,
   }), log));
-  r.get('/admin/modelos/:id', (req, res) => responder(res, () => checklists.carregarModelo(db, req.params.id), log));
+  r.get('/admin/modelos/:id', (req, res) => responder(res, () => { exigirGerencia(req); return checklists.carregarModelo(db, req.params.id); }, log));
   r.post('/admin/modelos/:codigo/versoes', (req, res) => responder(res, () => { exigirGerencia(req); return modelos.salvarNovaVersao(db, req.params.codigo, corpo(req)); }, log));
   r.post('/admin/modelos/:id/ativar', (req, res) => responder(res, () => { exigirGerencia(req); return modelos.ativarVersao(db, req.params.id, corpo(req)); }, log));
 
@@ -329,12 +357,14 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   }, log));
 
   r.post('/cards/:id/arquivar', (req, res) => responder(res, () => {
+    exigirGestor(req);
     const c = acoes.arquivarCard(db, req.params.id, { operador: (req.body || {}).operador });
     broadcast('kanban');
     return { ok: true, card: porId(c.id) };
   }, log));
 
   r.post('/cards/:id/desarquivar', (req, res) => responder(res, () => {
+    exigirGestor(req);
     const c = acoes.desarquivarCard(db, req.params.id, { operador: (req.body || {}).operador });
     broadcast('kanban');
     return { ok: true, card: porId(c.id) };
@@ -372,6 +402,34 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       liberarLock(db, dono, 'kb_sync_lock');
     }
   });
+
+  // ---------- Etapa 7: downloads auditados, links do cliente, auditoria ----------
+  // PDF (checklist ou Launch): registra quem baixou e redireciona para a URL assinada de 15 min.
+  r.get('/midias/:id/abrir', async (req, res) => {
+    try {
+      const { url, midia } = await arquivos.urlDoPdf(db, storage, req.params.id);
+      auditoria.registrar(db, {
+        usuario: req.session && req.session.usuario, acao: 'pdf_aberto', cardId: midia.card_id,
+        entidade: 'midias', entidadeId: midia.id, ip: req.ip,
+      });
+      res.redirect(302, url);
+    } catch (e) {
+      if (e instanceof acoes.ErroAcao) return res.status(e.status).type('text').send(e.message);
+      log('kanban: erro ao abrir PDF: ' + e.message);
+      res.status(500).type('text').send('Erro ao abrir o PDF');
+    }
+  });
+
+  r.get('/cards/:id/links', (req, res) => responder(res, () => { exigirGestor(req); return links.linksDoCard(db, req.params.id); }, log));
+  r.post('/links/:id/revogar', (req, res) => responder(res, () => {
+    exigirGestor(req);
+    return links.revogarLink(db, req.params.id, { operador: corpo(req).operador });
+  }, log));
+
+  r.get('/admin/auditoria', (req, res) => responder(res, () => {
+    exigirGerencia(req);
+    return auditoria.listar(db, { os: req.query.os, login: req.query.login, acao: req.query.acao, limite: req.query.limite });
+  }, log));
 
   r.get('/sync/logs', (req, res) => {
     res.json(db.prepare('SELECT * FROM kb_sync_log ORDER BY id DESC LIMIT 50').all());

@@ -61,7 +61,8 @@ test('relatório do chassi do card é anexado sozinho, com registro na linha do 
   assert.equal(ev.operador_nome, 'Sistema');
   const lista = await launch.listarDoCard(db, storage, card.id);
   assert.equal(lista.length, 1);
-  assert.equal((await fetch(lista[0].url)).status, 200);
+  assert.equal(lista[0].url, `/api/kanban/midias/${r.relatorio.midia_id}/abrir`);
+  assert.equal((await fetch((await require('../kanban/arquivos').urlDoPdf(db, storage, r.relatorio.midia_id)).url)).status, 200);
 });
 
 test('vários relatórios do mesmo chassi: principal = mais próximo da entrada (antes ou depois); demais adicionais em ordem', async () => {
@@ -238,6 +239,14 @@ test('rota: envio manual de PDF pelo card e lista de não vinculados', async () 
     assert.equal(est.cards.find((x) => x.id === card.id).qtd_launch, 1);
     const nv = await (await fetch(`${base}/launch/nao-vinculados`)).json();
     assert.equal(nv.relatorios.length, 0);
+    // o PDF abre pela rota do app: registra na auditoria e redireciona para a URL assinada
+    const abrir = await fetch(`http://127.0.0.1:${srv.address().port}${lista[0].url}`, { redirect: 'manual' });
+    assert.equal(abrir.status, 302);
+    assert.match(abrir.headers.get('location'), /X-Amz-Signature=.*filename%3D%22escaneamento_manual\.pdf%22/);
+    assert.equal((await fetch(abrir.headers.get('location'))).status, 200);
+    const aud = db.prepare("SELECT * FROM auditoria WHERE acao = 'pdf_aberto'").get();
+    assert.equal(aud.card_id, card.id);
+    assert.equal((await fetch(`${base}/midias/999999/abrir`, { redirect: 'manual' })).status, 404);
   } finally {
     srv.close();
   }

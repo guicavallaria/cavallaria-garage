@@ -495,7 +495,7 @@
     return `<div class="kb-acoes-card">
         ${atuais.length ? atuais.map((p) => `<a class="kb-botao ${p.via === 'orcamento' ? 'kb-botao-sec' : ''}" href="${esc(p.url)}" target="_blank" rel="noopener">📄 ${NOME_VIA[p.via] || 'PDF'}${versoes.length > 1 ? ` (v${p.versao})` : ''}</a>`).join('')
           : '<span class="kb-dica">PDF sendo gerado…</span>'}
-        ${paraCliente ? `<button type="button" class="kb-botao kb-botao-sec" data-acao="chk-link-cliente" data-id="${paraCliente.id}">📤 Link para o cliente (7 dias)</button>` : ''}
+        ${paraCliente ? `<button type="button" class="kb-botao kb-botao-sec kb-so-gestor" data-acao="chk-link-cliente" data-id="${paraCliente.id}">📤 Link para o cliente (7 dias)</button>` : ''}
         <button type="button" class="kb-botao kb-botao-sec" data-acao="chk-pdf">Exportar PDF de novo</button>
       </div>
       <div id="kbChkLink"></div>

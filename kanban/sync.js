@@ -14,6 +14,7 @@
 // Leitura que falha não altera nenhum card: só grava o erro no log, e a tela mostra
 // "Sincronização com Onmotor parada desde hh:mm".
 const crypto = require('crypto');
+const { registrar: registrarAuditoria } = require('../acesso/auditoria');
 const { parseNovidades } = require('../patio/parser');
 const { formatarPlaca } = require('../patio/placa');
 const { dentroDaJanela } = require('../patio/tz');
@@ -122,6 +123,7 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
         ? `Card importado do Onmotor na carga inicial — OS ${l.osNumber} (etapa no Onmotor: ${etapa})`
         : `Card criado automaticamente — OS ${l.osNumber} aberta no Onmotor`, { fase_id: fase }, agora);
       f.onmotor({ osNumero: l.osNumber, osId: l.osId, tipo: 'criada', payload: l, hash: h, agora });
+      registrarAuditoria(db, { operador: 'Sistema', acao: 'card_criado', cardId: id, entidade: 'cards', entidadeId: id, detalhes: { origem: primeiraCarga ? 'carga_inicial' : 'sync', fase_id: fase }, quando: agora });
       r.vistos.add(id);
       r.criados++;
       continue;

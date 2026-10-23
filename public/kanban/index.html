@@ -5,19 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#1f2330" />
 <title>Kanban de OS — Cavallaria Garage</title>
+<link rel="manifest" href="/kanban/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<link rel="apple-touch-icon" href="/kanban/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kanban OS" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="stylesheet" href="/kanban/kanban.css" />
 </head>
 <body>
   <header class="kb-topbar">
-    <a href="/" class="kb-voltar" title="Voltar para a agenda">← Agenda</a>
+    <a href="/" class="kb-voltar kb-so-agenda" title="Voltar para a agenda">← Agenda</a>
     <h1>Kanban de OS</h1>
     <span id="kbFonte" class="kb-chip kb-chip-mock" hidden>Onmotor SIMULADO</span>
     <div class="kb-acoes">
       <button id="kbOperador" class="kb-btn kb-btn-operador" type="button" title="Trocar o operador deste aparelho">👤 <span id="kbOperadorNome">Quem é você?</span></button>
-      <a href="/kanban/launch.html" id="kbLinkLaunch" class="kb-btn" style="text-decoration:none">🔬 Launch</a>
-      <a href="/kanban/admin.html" class="kb-btn kb-so-pc" title="Mecânicos e modelos de checklist" style="text-decoration:none">⚙️ Administração</a>
+      <a href="/kanban/launch.html" id="kbLinkLaunch" class="kb-btn kb-so-gestor" style="text-decoration:none">🔬 Launch</a>
+      <a href="/kanban/admin.html" class="kb-btn kb-so-pc kb-so-admin" title="Usuários, mecânicos, modelos de checklist e auditoria" style="text-decoration:none">⚙️ Administração</a>
       <span id="kbUltimaSync" class="kb-ultima"></span>
       <button id="kbSync" class="kb-btn" type="button">⟳ Sincronizar</button>
+      <span class="kb-conta" data-conta></span>
     </div>
   </header>
 
@@ -100,6 +108,7 @@
   <input id="kbInLaunch" type="file" accept="application/pdf,.pdf" hidden />
   <input id="kbInChkVideo" type="file" accept="video/*" capture="environment" hidden />
 
+  <script src="/kanban/sessao.js"></script>
   <script src="/kanban/midia.js"></script>
   <script src="/kanban/kanban.js"></script>
   <script src="/kanban/checklist.js"></script>

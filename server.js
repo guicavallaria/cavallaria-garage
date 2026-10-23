@@ -17,35 +17,48 @@ const kanbanStorage = require('./kanban/storage').criarStorage();
 if (!kanbanStorage.configurado) console.log('kanban: armazenamento de mídia desligado — ' + kanbanStorage.motivo);
 const KANBAN_INTERVALO_MIN = Number(process.env.KANBAN_SYNC_INTERVAL_MIN) || 2;
 
+const acesso = require('./acesso/rotas');
+const { StoreSqlite } = require('./acesso/sessoes');
+
+// Produção = Railway (ou NODE_ENV=production): HTTPS obrigatório e cookie só em HTTPS.
+const PRODUCAO = process.env.NODE_ENV === 'production' || Boolean(process.env.RAILWAY_ENVIRONMENT);
+
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // Railway fica atrás de um proxy: IP real e HTTPS vêm dos X-Forwarded-*
+
+// ---------- Segurança ----------
+app.use((req, res, next) => {
+  // HTTP → HTTPS (só quando o proxy informa o protocolo; o healthcheck interno segue livre)
+  if (PRODUCAO && req.get('x-forwarded-proto') === 'http') return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=()',
+  });
+  if (PRODUCAO) res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
 app.use(express.json());
 
-// ---------- Auth ----------
+// ---------- Login individual (perfis: acesso/perfis.js) ----------
+let segredoSessao = process.env.SESSION_SECRET;
+if (!segredoSessao || segredoSessao.length < 32) {
+  if (PRODUCAO) console.error('SEGURANÇA: defina SESSION_SECRET (32+ caracteres aleatórios). Usando um segredo temporário: todos saem a cada reinício.');
+  segredoSessao = PRODUCAO ? require('crypto').randomBytes(32).toString('hex') : 'cavallaria-local-secret-somente-desenvolvimento';
+}
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'cavallaria-local-secret',
+  name: 'cavallaria.sid',
+  secret: segredoSessao,
+  store: new StoreSqlite(db), // sessões no SQLite: deploy não desloga ninguém
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 12 * 60 * 60 * 1000 }, // 12 hours
+  rolling: true, // 12 h sem usar o app → sai
+  cookie: { maxAge: 12 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: PRODUCAO ? 'auto' : false },
 }));
 
-app.get('/login', (req, res) => {
-  if (req.session.autenticado) return res.redirect('/');
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-
-app.post('/login', (req, res) => {
-  const senha = process.env.APP_PASSWORD || 'cavallaria2026';
-  if (req.body.senha === senha) {
-    req.session.autenticado = true;
-    res.json({ ok: true });
-  } else {
-    res.status(401).json({ erro: 'Senha incorreta' });
-  }
-});
-
-app.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
-});
+app.use(acesso.criarAcesso({ db, producao: PRODUCAO, publicDir: path.join(__dirname, 'public') }).router);
 
 // ---------- Pós-vendas: upload dos relatórios (push do PC) ----------
 // Fica ANTES do auth de sessão porque é chamado por um script (sem cookie do
@@ -71,11 +84,17 @@ app.post('/api/posvendas/upload', express.text({ limit: '30mb', type: '*/*' }), 
 // para uma URL assinada de 15 min do bucket.
 app.get('/m/:token', require('./kanban/links').rotaPublica({ db, storage: kanbanStorage }));
 
-app.use((req, res, next) => {
-  if (req.session.autenticado) return next();
-  if (req.path.startsWith('/api/')) return res.status(401).json({ erro: 'Não autenticado' });
-  res.redirect('/login');
-});
+// Arquivos públicos, sem dado nenhum: logo e ícones (tela de login) e o manifest/service worker
+// do PWA (o navegador busca o manifest sem cookie).
+const kanbanPublico = path.join(__dirname, 'public', 'kanban');
+app.use('/kanban/icons', express.static(path.join(kanbanPublico, 'icons'), { maxAge: '7d' }));
+app.use('/kanban/img', express.static(path.join(kanbanPublico, 'img'), { maxAge: '7d' }));
+app.get('/kanban/manifest.webmanifest', (req, res) => res.sendFile(path.join(kanbanPublico, 'manifest.webmanifest')));
+app.get('/kanban/sw.js', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(kanbanPublico, 'sw.js')));
+
+// Porteiro: login, troca de senha obrigatória e área de cada perfil (mecânico → só kanban).
+app.use(acesso.porteiro({ db }));
+app.use('/api/acesso', acesso.rotasConta({ db }));
 
 // Static files served only after auth check
 app.use(express.static(path.join(__dirname, 'public')));

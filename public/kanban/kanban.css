@@ -156,6 +156,18 @@ button { font: inherit; }
 .kb-filtros select { font-size: 15px; padding: 7px 8px; border: 1px solid #c9ced8; border-radius: 8px; background: #fff; max-width: 180px; }
 .kb-so-pc { display: none !important; }
 @media (min-width: 900px) { .kb-so-pc { display: flex !important; } }
+/* Etapa 7: o que cada perfil não usa some da tela (o servidor também barra) */
+body.kb-sem-gestor .kb-so-gestor, body.kb-sem-admin .kb-so-admin, body.kb-sem-agenda .kb-so-agenda { display: none !important; }
+/* login de mecânico: o nome já aparece na conta; o operador é ele mesmo */
+body.kb-perfil-mecanico #kbOperador { display: none !important; }
+.kb-conta { display: flex; align-items: center; gap: 8px; }
+.kb-conta-nome { color: #fff; text-decoration: none; font-size: 14px; white-space: nowrap; }
+.kb-conta-sair { padding: 4px 10px; }
+.kb-links { margin: 10px 0 0; font-size: 14px; }
+.kb-links summary { cursor: pointer; color: var(--suave); padding: 6px 0; }
+.kb-links-lista { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 6px; }
+.kb-links-lista li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; border: 1px solid var(--linha); border-radius: 8px; padding: 6px 10px; }
+.kb-links-lista small { color: var(--suave); }
 
 .kb-card { cursor: grab; }
 .kb-card.kb-arrastando { opacity: .4; }
@@ -226,7 +238,8 @@ button { font: inherit; }
 .kb-ultima { white-space: nowrap; }
 @media (max-width: 899px) {
   .kb-topbar { gap: 8px 12px; }
-  .kb-acoes { margin-left: 0; flex-basis: 100%; justify-content: space-between; }
+  .kb-acoes { margin-left: 0; flex-basis: 100%; justify-content: space-between; flex-wrap: wrap; row-gap: 6px; }
+  .kb-conta-nome { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
   .kb-btn-operador { max-width: 45%; }
   .kb-ferramentas { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; }
   .kb-busca { display: contents; }

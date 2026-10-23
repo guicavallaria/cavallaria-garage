@@ -12,6 +12,7 @@
 //    ou até o card daquele chassi aparecer (vínculo automático).
 const crypto = require('crypto');
 const { ErroAcao, validarOperador } = require('./acoes');
+const { caminhoAbrir } = require('./arquivos');
 const { normalizarChassi } = require('./onmotor-os');
 const { formatarBR } = require('./datas');
 
@@ -166,14 +167,14 @@ async function comUrl(storage, rels) {
   for (const r of rels) {
     out.push({
       ...r,
-      url: storage && storage.configurado ? await storage.urlVer(r.chave_objeto, { nomeArquivo: r.nome_arquivo, contentType: 'application/pdf' }) : null,
+      url: storage && storage.configurado ? caminhoAbrir(r.midia_id) : null, // download auditado
     });
   }
   return out;
 }
 
 const SQL_REL = `SELECT r.id, r.origem, r.nome_arquivo, r.marca, r.chassi, r.relatorio_em, r.card_id, r.principal, r.vinculado_em, r.vinculado_por,
-  r.criado_em, m.chave_objeto, m.tamanho_bytes FROM launch_relatorios r JOIN kb_midias m ON m.id = r.midia_id WHERE r.removido_em IS NULL`;
+  r.criado_em, r.midia_id, m.chave_objeto, m.tamanho_bytes FROM launch_relatorios r JOIN kb_midias m ON m.id = r.midia_id WHERE r.removido_em IS NULL`;
 
 // Do card: principal primeiro; adicionais em ordem cronológica.
 async function listarDoCard(db, storage, cardId) {

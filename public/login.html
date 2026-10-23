@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Agendamento — Cavallaria Garage</title>
+<meta name="theme-color" content="#1f2330" />
+<title>Entrar — Cavallaria Garage</title>
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 body {
   font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   background: #1f2330;
@@ -13,20 +16,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
 }
 .card {
   background: #fff;
   border-radius: 12px;
-  padding: 40px 36px;
-  width: 340px;
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 360px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
-.logo {
-  text-align: center;
-  margin-bottom: 28px;
-}
-.logo h1 { font-size: 20px; color: #1f2330; }
-.logo p  { font-size: 13px; color: #888; margin-top: 4px; }
+.logo { text-align: center; margin-bottom: 24px; }
+.logo img { width: 190px; max-width: 70%; height: auto; }
+.logo p  { font-size: 13px; color: #888; margin-top: 8px; }
 label {
   display: block;
   font-size: 12.5px;
@@ -34,25 +36,25 @@ label {
   color: #555;
   margin-bottom: 14px;
 }
-input[type="password"] {
+input {
   width: 100%;
   margin-top: 4px;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border: 1px solid #d6d8e0;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
   transition: border-color .15s;
 }
-input[type="password"]:focus { border-color: #185FA5; }
+input:focus { border-color: #185FA5; }
 button {
   width: 100%;
-  padding: 11px;
+  padding: 12px;
   background: #185FA5;
   color: #fff;
   border: none;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   margin-top: 8px;
@@ -60,50 +62,63 @@ button {
 }
 button:hover { background: #14507f; }
 button:disabled { background: #aaa; cursor: not-allowed; }
-.erro {
-  color: #c0392b;
-  font-size: 13px;
-  text-align: center;
-  margin-top: 12px;
-  min-height: 20px;
-}
+.erro { color: #c0392b; font-size: 13.5px; text-align: center; margin-top: 12px; min-height: 20px; }
+.inicial { background: #fff8e1; border: 1px solid #f0d27a; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #5f4b00; margin-bottom: 14px; }
+.dica { font-size: 12.5px; color: #888; text-align: center; margin-top: 14px; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="logo">
-    <h1>🔧 Cavallaria Garage</h1>
-    <p>Sistema de Agendamento</p>
+    <img src="/kanban/img/logo-cavallaria-garage.webp" alt="Cavallaria Garage" />
+    <p>Agenda · Kanban de OS · Pós-vendas</p>
   </div>
   <form id="formLogin">
-    <label>Senha de acesso
-      <input type="password" id="senha" placeholder="Digite a senha" autofocus required />
+    <p class="inicial" id="avisoInicial" hidden>Primeiro acesso: entre com a <strong>senha antiga do app</strong> (como Gerência) só para criar os usuários.</p>
+    <label id="rotUsuario">Usuário
+      <input type="text" id="usuario" placeholder="ex.: recepcao, edson" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus />
+    </label>
+    <label>Senha
+      <input type="password" id="senha" placeholder="Sua senha" autocomplete="current-password" required />
     </label>
     <button type="submit" id="btnEntrar">Entrar</button>
-    <div class="erro" id="msgErro"></div>
+    <div class="erro" id="msgErro" role="alert"></div>
+    <p class="dica">Esqueceu a senha? Peça à Gerência uma senha provisória.</p>
   </form>
 </div>
 <script>
+let inicial = false;
+fetch('/api/acesso/inicial').then((r) => r.json()).then((r) => {
+  inicial = Boolean(r.acesso_inicial);
+  document.getElementById('avisoInicial').hidden = !inicial;
+  document.getElementById('rotUsuario').hidden = inicial;
+  if (inicial) document.getElementById('senha').focus();
+}).catch(() => null);
+
 document.getElementById('formLogin').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const btn = document.getElementById('btnEntrar');
   const erro = document.getElementById('msgErro');
+  const usuario = document.getElementById('usuario').value.trim();
+  if (!inicial && !usuario) { erro.textContent = 'Informe o usuário.'; document.getElementById('usuario').focus(); return; }
   btn.disabled = true;
   btn.textContent = 'Verificando…';
   erro.textContent = '';
-  const resp = await fetch('/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ senha: document.getElementById('senha').value }),
-  });
-  if (resp.ok) {
-    window.location.href = '/';
-  } else {
-    erro.textContent = 'Senha incorreta. Tente novamente.';
-    btn.disabled = false;
-    btn.textContent = 'Entrar';
-    document.getElementById('senha').select();
+  try {
+    const resp = await fetch('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario, senha: document.getElementById('senha').value }),
+    });
+    const corpo = await resp.json().catch(() => ({}));
+    if (resp.ok) { window.location.href = corpo.destino || '/'; return; }
+    erro.textContent = corpo.erro || 'Não foi possível entrar.';
+  } catch (_) {
+    erro.textContent = 'Sem conexão com o servidor.';
   }
+  btn.disabled = false;
+  btn.textContent = 'Entrar';
+  document.getElementById('senha').select();
 });
 </script>
 </body>
