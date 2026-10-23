@@ -99,6 +99,8 @@ app.use('/kanban/icons', express.static(path.join(kanbanPublico, 'icons'), { max
 app.use('/kanban/img', express.static(path.join(kanbanPublico, 'img'), { maxAge: '7d' }));
 app.get('/kanban/manifest.webmanifest', (req, res) => res.sendFile(path.join(kanbanPublico, 'manifest.webmanifest')));
 app.get('/kanban/sw.js', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(kanbanPublico, 'sw.js')));
+// Política de privacidade pública (exigida pelo Google para publicar o app OAuth do Gmail do Launch)
+app.get('/privacidade', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacidade.html')));
 
 // Porteiro: login, troca de senha obrigatória e área de cada perfil (mecânico → só kanban).
 app.use(acesso.porteiro({ db }));
