@@ -10,6 +10,10 @@ const patioRoutes = require('./patio/routes');
 const { reconciliarAgendaHoje } = require('./patio/agenda');
 const { sincronizar: sincronizarPatio } = require('./patio/sync');
 const { criarScheduler } = require('./patio/scheduler');
+const kanbanRoutes = require('./kanban/routes');
+const { sincronizarKanban, JANELA_KANBAN } = require('./kanban/sync');
+const kanbanFonte = require('./kanban/fonte');
+const KANBAN_INTERVALO_MIN = Number(process.env.KANBAN_SYNC_INTERVAL_MIN) || 2;
 
 const app = express();
 app.use(express.json());
@@ -71,6 +75,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Painel de pátio (veículos em execução, lidos do Onmotor) ----------
 app.use('/api/patio', patioRoutes.criarRouter({ db, broadcast, log: console.log }));
+
+// ---------- Kanban de OS (cards criados a partir da Novidades do Onmotor) ----------
+app.use('/api/kanban', kanbanRoutes.criarRouter({
+  db, broadcast, log: console.log, criarCliente: kanbanFonte.criarCliente, intervaloMin: KANBAN_INTERVALO_MIN,
+}));
+// A página fica em public/kanban/index.html (servida pelo static em /kanban/).
 
 // ---------- Pós-vendas: leitura (protegida pela MESMA sessão do agendamento) ----------
 // Só dados não-financeiros saem daqui (a sanitização é feita no módulo posvendas).
@@ -835,5 +845,25 @@ if (process.env.PATIO_SYNC_ENABLED !== 'false') {
     console.log('patio: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
   } else {
     criarScheduler({ db, sincronizar: (o) => sincronizarPatio(db, { ...o, broadcast }) }).iniciar();
+  }
+}
+
+// ---------- Kanban de OS: sincronização automática (seg–sex 07:00–19:00, a cada 2 min) ----------
+// Desligue com KANBAN_SYNC_ENABLED=false. KANBAN_FONTE=mock usa o Onmotor simulado (desenvolvimento).
+if (process.env.KANBAN_SYNC_ENABLED !== 'false') {
+  if (!kanbanFonte.fonteConfigurada()) {
+    console.log('kanban: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
+  } else {
+    console.log(`kanban: fonte do Onmotor = ${kanbanFonte.modoFonte()}`);
+    criarScheduler({
+      db,
+      rotulo: 'kanban',
+      tabelaLock: 'kb_sync_lock',
+      intervaloMin: KANBAN_INTERVALO_MIN,
+      tickMs: 10_000,
+      folgaMs: 10_000, // rodadas a cada 110–120 s: OS nova vira card em até 2 min
+      janela: JANELA_KANBAN,
+      sincronizar: (o) => sincronizarKanban(db, { ...o, client: kanbanFonte.criarCliente({ log: console.log }), broadcast }),
+    }).iniciar();
   }
 }

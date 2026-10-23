@@ -25,6 +25,18 @@ function flag(tr, campo) {
   return m ? m[1] === '1' : null;
 }
 
+// Data/hora de uma etapa, tirada do tooltip do ícone: title="Finalizado<br>21/10/26 às 17:40".
+// Só existe quando a etapa foi marcada (data-value="1"). Serve para a linha da
+// Novidades e para a página da OS, que usam o mesmo ícone.
+function dataEtapa(html, campo) {
+  // `<i` + atributos até o data-field: na página da OS existe também um <div data-field="…">
+  // com o campo de data, que não pode ser confundido com o ícone.
+  const icone = String(html || '').match(new RegExp(`<i\\b[^<]*?data-field="${campo}"[\\s\\S]*?<\\/i>`));
+  if (!icone) return null;
+  const m = icone[0].match(/title="[^"]*?<br>\s*(\d{2}\/\d{2}\/\d{2,4})(?:\s*(?:às|as|&agrave;s)\s*(\d{2}:\d{2}))?/);
+  return m ? dataBR(m[1] + (m[2] ? ' ' + m[2] : '')) : null;
+}
+
 // "20/10/26 16:06" → "2026-10-20 16:06" (ISO local, sem fuso: é o relógio do Onmotor)
 function dataBR(s) {
   const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{2,4})(?:\s+(\d{2}:\d{2}))?/);
@@ -72,10 +84,19 @@ function parseLinhas(html) {
       retirado: flag(tr, 'data_de_retirada'),
     };
 
+    const datas = {
+      entrada: dataEtapa(tr, 'data_entrada'),
+      orcamento: dataEtapa(tr, 'data_de_orcamento'),
+      aguardandoPeca: dataEtapa(tr, 'data_de_aguardando_peca'),
+      emExecucao: dataEtapa(tr, 'data_de_andamento'),
+      finalizado: dataEtapa(tr, 'data_de_finalizacao'),
+      retirado: dataEtapa(tr, 'data_de_retirada'),
+    };
+
     return {
       osId, osNumber, proprietario,
       placaTexto, placa, placaExibicao: placa ? formatarPlaca(placa) : placaTexto,
-      modelo, km, telefone, entrada, etapas,
+      modelo, km, telefone, entrada, etapas, datas,
     };
   });
 }
@@ -101,4 +122,4 @@ function parseNovidades(html) {
   };
 }
 
-module.exports = { parseNovidades, parseLinhas, validarPagina, noPatio, dataBR, texto };
+module.exports = { parseNovidades, parseLinhas, validarPagina, noPatio, dataBR, dataEtapa, flag, texto };

@@ -76,3 +76,32 @@ test('não roda duas vezes em paralelo', async () => {
   liberar({ ok: true });
   assert.equal((await p1).ok, true);
 });
+
+test('kanban: lock próprio, janela 07:00–19:00 e folga de um tick (intervalo real ≤ 2 min)', async () => {
+  const db = bancoDeTeste();
+  const { JANELA_KANBAN } = require('../kanban/sync');
+  const rel = relogio('2026-10-23T10:00:00Z'); // sex 07:00 SP — já dentro da janela do kanban
+  const avancarSeg = (s) => rel.avancarMin(s / 60);
+  const { s, execucoes } = montar(db, rel, { intervaloMin: 2, janela: JANELA_KANBAN, tickMs: 10_000, folgaMs: 10_000, rotulo: 'kanban', tabelaLock: 'kb_sync_lock' });
+
+  assert.equal((await s.tick()).ok, true);
+  avancarSeg(100);
+  assert.deepEqual(await s.tick(), { pulou: 'intervalo' });
+  avancarSeg(10); // 110 s: dentro da folga, já roda
+  assert.equal((await s.tick()).ok, true);
+  assert.equal(execucoes.length, 2);
+
+  // o lock do pátio não bloqueia o kanban, e vice-versa
+  assert.ok(adquirirLock(db, 'outro', 600, rel.agoraFn().getTime(), 'patio_sync_lock'));
+  avancarSeg(120);
+  assert.equal((await s.tick()).ok, true);
+  assert.ok(adquirirLock(db, 'outro', 600, rel.agoraFn().getTime(), 'kb_sync_lock'));
+  avancarSeg(120);
+  assert.deepEqual(await s.tick(), { pulou: 'lock' });
+  liberarLock(db, 'outro', 'kb_sync_lock');
+});
+
+test('lock só aceita as tabelas conhecidas', () => {
+  const db = bancoDeTeste();
+  assert.throws(() => adquirirLock(db, 'x', 600, Date.now(), 'agendamentos; DROP TABLE x'), /desconhecida/);
+});

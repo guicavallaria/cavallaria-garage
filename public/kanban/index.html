@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#1f2330" />
+<title>Kanban de OS — Cavallaria Garage</title>
+<link rel="stylesheet" href="/kanban/kanban.css" />
+</head>
+<body>
+  <header class="kb-topbar">
+    <a href="/" class="kb-voltar" title="Voltar para a agenda">← Agenda</a>
+    <h1>Kanban de OS</h1>
+    <span id="kbFonte" class="kb-chip kb-chip-mock" hidden>Onmotor SIMULADO</span>
+    <div class="kb-acoes">
+      <span id="kbUltimaSync" class="kb-ultima"></span>
+      <button id="kbSync" class="kb-btn" type="button">⟳ Sincronizar agora</button>
+    </div>
+  </header>
+
+  <div id="kbBanner" class="kb-banner" role="alert" hidden></div>
+
+  <nav id="kbAbas" class="kb-abas" aria-label="Fases"></nav>
+
+  <main id="kbQuadro" class="kb-quadro" aria-live="polite">
+    <p class="kb-carregando">Carregando…</p>
+  </main>
+
+  <aside id="kbPainel" class="kb-painel" hidden aria-modal="true" role="dialog" aria-labelledby="kbPainelTitulo">
+    <div class="kb-painel-topo">
+      <button id="kbFechar" class="kb-btn-fechar" type="button" aria-label="Fechar">✕</button>
+      <h2 id="kbPainelTitulo"></h2>
+    </div>
+    <div id="kbPainelCorpo" class="kb-painel-corpo"></div>
+  </aside>
+  <div id="kbVeu" class="kb-veu" hidden></div>
+
+  <script src="/kanban/kanban.js"></script>
+</body>
+</html>

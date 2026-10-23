@@ -1,0 +1,137 @@
+/* Kanban de OS — mobile-first. No celular: uma fase por vez (abas). A partir de 900px: todas as colunas. */
+:root {
+  --fundo: #f3f4f6;
+  --texto: #1f2330;
+  --suave: #5b6170;
+  --linha: #dfe2e8;
+  --card: #fff;
+  --topo: #1f2330;
+  --azul: #185FA5;
+  --verde-marca: #0A7A5C;
+  --alerta: #b3261e;
+  --alerta-fundo: #fdecea;
+  --aviso: #8a5a00;
+  --aviso-fundo: #fff4d6;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--fundo);
+  color: var(--texto);
+  min-height: 100vh;
+}
+button { font: inherit; }
+
+.kb-topbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--topo); color: #fff;
+  padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top));
+}
+.kb-topbar h1 { font-size: 18px; margin: 0; }
+.kb-voltar { color: #fff; text-decoration: none; opacity: .85; font-size: 14px; }
+.kb-acoes { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.kb-ultima { font-size: 12.5px; opacity: .8; }
+.kb-btn {
+  border: none; border-radius: 6px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  background: rgba(255,255,255,.14); color: #fff; min-height: 40px;
+}
+.kb-btn:disabled { opacity: .5; cursor: progress; }
+.kb-chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; }
+.kb-chip-mock { background: #f9a825; color: #1f2330; }
+
+.kb-banner {
+  background: var(--alerta); color: #fff; padding: 10px 16px; font-size: 14px; font-weight: 600;
+}
+.kb-banner small { display: block; font-weight: 400; opacity: .9; margin-top: 2px; }
+.kb-banner.kb-banner-info { background: var(--aviso-fundo); color: var(--aviso); }
+
+/* Abas de fase (só no celular) */
+.kb-abas {
+  display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px;
+  background: #fff; border-bottom: 1px solid var(--linha);
+  scrollbar-width: none; position: sticky; top: 0; z-index: 5;
+}
+.kb-abas::-webkit-scrollbar { display: none; }
+.kb-aba {
+  flex: 0 0 auto; border: 1px solid var(--linha); background: #fff; color: var(--texto);
+  border-radius: 20px; padding: 7px 12px; font-size: 13.5px; cursor: pointer; min-height: 36px;
+}
+.kb-aba[aria-selected="true"] { background: var(--texto); color: #fff; border-color: var(--texto); }
+.kb-aba .kb-n { font-weight: 700; margin-left: 4px; }
+
+.kb-quadro { padding: 12px 16px 40px; }
+.kb-carregando, .kb-vazio { color: var(--suave); font-size: 14px; }
+
+.kb-coluna { display: none; }
+.kb-coluna.kb-ativa { display: block; }
+.kb-coluna-topo { display: none; }
+.kb-lista { display: flex; flex-direction: column; gap: 10px; }
+
+.kb-card {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--card); border: 1px solid var(--linha); border-left: 4px solid var(--linha);
+  border-radius: 8px; padding: 10px 12px; color: inherit;
+}
+.kb-card:hover { border-color: #c4c9d3; }
+.kb-card:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px; }
+.kb-card.kb-velho { border-left-color: var(--alerta); }
+.kb-card-l1 { display: flex; align-items: baseline; gap: 8px; }
+.kb-os { font-size: 17px; font-weight: 800; letter-spacing: .2px; }
+.kb-placa { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; background: #eef0f4; padding: 1px 6px; border-radius: 4px; }
+.kb-tempo { margin-left: auto; font-size: 12.5px; color: var(--suave); white-space: nowrap; }
+.kb-velho .kb-tempo { color: var(--alerta); font-weight: 700; }
+.kb-card-l2 { margin-top: 4px; font-size: 14px; }
+.kb-card-l3 { margin-top: 2px; font-size: 13px; color: var(--suave); display: flex; gap: 8px; flex-wrap: wrap; }
+.kb-selo { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+.kb-selo-fin { background: var(--alerta-fundo); color: var(--alerta); }
+.kb-selo-sumiu { background: var(--aviso-fundo); color: var(--aviso); }
+
+/* PC: todas as colunas lado a lado */
+@media (min-width: 900px) {
+  .kb-abas { display: none; }
+  .kb-quadro {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr);
+    gap: 12px; overflow-x: auto; align-items: start; min-height: calc(100vh - 70px);
+  }
+  .kb-coluna { display: block; background: #e8eaef; border-radius: 10px; padding: 8px; }
+  .kb-coluna-topo {
+    display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 10px; font-size: 13.5px; font-weight: 700;
+  }
+  .kb-coluna-topo .kb-n { margin-left: auto; color: var(--suave); }
+  .kb-lista { gap: 8px; }
+}
+
+/* Painel do card: tela cheia no celular, lateral no PC */
+.kb-veu { position: fixed; inset: 0; background: rgba(15,18,26,.45); z-index: 20; }
+.kb-painel {
+  position: fixed; inset: 0; z-index: 30; background: #fff; display: flex; flex-direction: column;
+}
+.kb-painel-topo {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--linha);
+}
+.kb-painel-topo h2 { font-size: 17px; margin: 0; }
+.kb-btn-fechar {
+  border: none; background: #eef0f4; border-radius: 6px; width: 40px; height: 40px; cursor: pointer; font-size: 16px;
+}
+.kb-painel-corpo { overflow-y: auto; padding: 14px 16px 40px; flex: 1; }
+@media (min-width: 900px) {
+  .kb-painel { left: auto; width: 520px; box-shadow: -8px 0 24px rgba(0,0,0,.15); }
+}
+
+.kb-fase-atual { display: inline-block; background: var(--texto); color: #fff; font-size: 13px; padding: 4px 10px; border-radius: 20px; margin-bottom: 12px; }
+.kb-dados { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; margin: 0 0 18px; }
+.kb-dados dt { color: var(--suave); }
+.kb-dados dd { margin: 0; overflow-wrap: anywhere; }
+.kb-sec { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--suave); margin: 18px 0 8px; }
+.kb-tempo-linha { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--linha); }
+.kb-tempo-linha li { position: relative; padding: 0 0 14px 14px; font-size: 14px; }
+.kb-tempo-linha li::before {
+  content: ""; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--verde-marca);
+}
+.kb-tempo-meta { font-size: 12.5px; color: var(--suave); margin-bottom: 2px; }

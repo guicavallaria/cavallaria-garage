@@ -17,7 +17,7 @@ const colunas = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) =
 
 test('up cria as tabelas do pátio, a coluna atualizado_em e é idempotente', () => {
   const db = bancoBase();
-  assert.deepEqual(aplicar(db), ['001_patio.js', '002_patio_empresa.js']);
+  assert.deepEqual(aplicar(db), ['001_patio.js', '002_patio_empresa.js', '003_kanban_base.js']);
   const t = tabelas(db);
   for (const esperada of ['patio_vehicles', 'patio_vehicle_orders', 'patio_sync_log', 'patio_sync_lock', 'schema_migrations']) {
     assert.ok(t.includes(esperada), `faltou ${esperada}`);
@@ -54,11 +54,13 @@ test('orders: única por (veículo, OS) e apagada em cascata com o veículo', ()
 test('down remove tudo o que o up criou (reversível)', () => {
   const db = bancoBase();
   aplicar(db);
-  assert.deepEqual(reverter(db), ['002_patio_empresa.js']); // uma por vez, da última para a primeira
+  assert.deepEqual(reverter(db), ['003_kanban_base.js']); // uma por vez, da última para a primeira
+  assert.ok(!tabelas(db).some((n) => n.startsWith('kb_')));
+  assert.deepEqual(reverter(db), ['002_patio_empresa.js']);
   assert.ok(!colunas(db, 'patio_vehicle_orders').includes('empresa'));
   assert.deepEqual(reverter(db), ['001_patio.js']);
   const t = tabelas(db);
   assert.ok(!t.some((n) => n.startsWith('patio_')));
   assert.ok(!colunas(db, 'agendamentos').includes('atualizado_em'));
-  assert.deepEqual(aplicar(db), ['001_patio.js', '002_patio_empresa.js']); // reaplica limpo
+  assert.deepEqual(aplicar(db), ['001_patio.js', '002_patio_empresa.js', '003_kanban_base.js']); // reaplica limpo
 });
