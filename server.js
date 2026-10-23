@@ -43,10 +43,18 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 // ---------- Login individual (perfis: acesso/perfis.js) ----------
+// SESSION_SECRET curto ou ausente: usa um segredo aleatório gerado uma vez e guardado no
+// próprio banco (volume), para os deploys não deslogarem ninguém.
 let segredoSessao = process.env.SESSION_SECRET;
 if (!segredoSessao || segredoSessao.length < 32) {
-  if (PRODUCAO) console.error('SEGURANÇA: defina SESSION_SECRET (32+ caracteres aleatórios). Usando um segredo temporário: todos saem a cada reinício.');
-  segredoSessao = PRODUCAO ? require('crypto').randomBytes(32).toString('hex') : 'cavallaria-local-secret-somente-desenvolvimento';
+  const salvo = db.prepare("SELECT valor FROM config WHERE chave = 'session_secret'").get();
+  if (salvo && salvo.valor && salvo.valor.length >= 64) {
+    segredoSessao = salvo.valor;
+  } else {
+    segredoSessao = require('crypto').randomBytes(48).toString('hex');
+    db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('session_secret', ?)").run(segredoSessao);
+    console.log('sessão: SESSION_SECRET curto ou ausente — segredo forte gerado e guardado no banco');
+  }
 }
 app.use(session({
   name: 'cavallaria.sid',
@@ -267,7 +275,7 @@ app.delete('/api/mecanicos/:id', (req, res) => {
 
 // ---------- Config ----------
 app.get('/api/config', (req, res) => {
-  const rows = db.prepare('SELECT * FROM config').all();
+  const rows = db.prepare("SELECT * FROM config WHERE chave <> 'session_secret'").all(); // segredo nunca sai
   const config = {};
   for (const r of rows) config[r.chave] = r.valor;
   res.json(config);
@@ -277,7 +285,7 @@ app.put('/api/config', (req, res) => {
   const upsert = db.prepare(
     'INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor'
   );
-  for (const [chave, valor] of Object.entries(req.body)) upsert.run(chave, String(valor));
+  for (const [chave, valor] of Object.entries(req.body)) if (chave !== 'session_secret') upsert.run(chave, String(valor));
   res.json({ ok: true });
 });
 

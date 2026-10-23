@@ -66,7 +66,7 @@ O conteúdo nunca vai para a auditoria: nada de texto do registro, nome ou telef
   - o cookie sai com `Secure`;
   - o servidor manda o cabeçalho HSTS.
 - Cabeçalhos em todas as respostas: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: same-origin`. O `Permissions-Policy` libera câmera e microfone só para o próprio app. O cabeçalho `X-Powered-By` foi removido.
-- `SESSION_SECRET` precisa ter 32 caracteres ou mais. Em produção, sem ela, o app gera um segredo temporário e avisa no log: funciona, mas todos saem a cada reinício.
+- Segredo da sessão: usa `SESSION_SECRET` se tiver 32 caracteres ou mais. Se não tiver (o do Railway tem 18), o app gera um segredo aleatório uma vez, guarda na tabela `config` (chave `session_secret`) e reaproveita depois, então os deploys não deslogam ninguém. A rota `/api/config` nunca devolve nem altera essa chave.
 
 ---
 
@@ -86,7 +86,7 @@ O conteúdo nunca vai para a auditoria: nada de texto do registro, nome ou telef
 
 | Variável | Valor |
 |---|---|
-| `SESSION_SECRET` | 64 caracteres aleatórios (novo) |
+| `SESSION_SECRET` | opcional: o atual (curto) é substituído pelo segredo guardado no banco |
 | `APP_PASSWORD` | manter a atual: é o acesso inicial para criar os usuários |
 | `APP_PUBLIC_URL` | `https://cavallaria-garage-production.up.railway.app` (links `/m/…` dos QR e do PDF do cliente) |
 | `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_REGION` | do bucket (R2: região `auto`) |
@@ -115,5 +115,5 @@ Não definir em produção: `KANBAN_FONTE=mock`, `KANBAN_MOCK_NOVIDADES`, `KANBA
   - link do PDF para o cliente;
   - Launch;
   - auditoria.
-- [ ] Conferir no log se não aparece o aviso de `SESSION_SECRET`.
+- [ ] No 1º deploy, o log mostra "segredo forte gerado e guardado no banco" uma vez só.
 - [ ] TV/painel da recepção: entrar com a conta `recepcao` ou `patio` uma vez. A sessão dura enquanto a tela for usada, e expira com 12 h sem uso.
