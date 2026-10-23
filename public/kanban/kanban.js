@@ -990,6 +990,87 @@
     render();
   });
 
+  // ---------- celular: deslizar o dedo para o lado troca de fase ----------
+  // O quadro mostra uma fase por vez. A coluna acompanha o dedo; soltando depois de ¼ da tela (ou
+  // num deslize rápido) vai para a próxima fase (arrastando para a esquerda) ou a anterior (para a
+  // direita). Rolar para cima/baixo continua normal (touch-action: pan-y no CSS).
+  (() => {
+    const q = $('kbQuadro');
+    const ehCelular = () => !window.matchMedia('(min-width: 900px)').matches;
+    const ids = () => (estado ? estado.fases.map((f) => f.id) : []);
+    let ini = null; // { x, y, t }
+    let modo = null; // 'h' = deslizando para o lado, 'v' = rolando
+    let col = null;
+    let suprimirClique = false;
+
+    const soltar = (c, transform, opacidade, depois) => {
+      c.style.transition = 'transform .16s ease-out, opacity .16s ease-out';
+      c.style.transform = transform;
+      c.style.opacity = opacidade;
+      setTimeout(depois, 160);
+    };
+
+    q.addEventListener('touchstart', (ev) => {
+      if (!estado || !ehCelular() || ev.touches.length !== 1) { ini = null; return; }
+      const t = ev.touches[0];
+      ini = { x: t.clientX, y: t.clientY, t: Date.now() };
+      modo = null;
+      col = q.querySelector('.kb-coluna.kb-ativa');
+    }, { passive: true });
+
+    q.addEventListener('touchmove', (ev) => {
+      if (!ini || !col || ev.touches.length !== 1) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - ini.x;
+      const dy = t.clientY - ini.y;
+      if (!modo && Math.hypot(dx, dy) > 10) modo = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v';
+      if (modo !== 'h') return;
+      const i = ids().indexOf(faseAtiva);
+      const naBorda = (dx > 0 && i <= 0) || (dx < 0 && i >= ids().length - 1);
+      col.style.transition = 'none';
+      col.style.transform = `translateX(${naBorda ? dx / 4 : dx}px)`; // na primeira/última fase, só "elástico"
+      col.style.opacity = String(1 - Math.min(Math.abs(dx) / (q.clientWidth * 1.6), 0.35));
+    }, { passive: true });
+
+    const fim = (ev) => {
+      if (!ini || !col) { ini = null; col = null; return; }
+      const t = ev.changedTouches[0];
+      const dx = t.clientX - ini.x;
+      const rapido = Date.now() - ini.t < 300 && Math.abs(dx) > 50;
+      const c = col;
+      const lista = ids();
+      const destino = lista.indexOf(faseAtiva) + (dx < 0 ? 1 : -1);
+      const vai = modo === 'h' && (Math.abs(dx) > q.clientWidth * 0.25 || rapido) && destino >= 0 && destino < lista.length;
+      if (modo === 'h') { suprimirClique = true; setTimeout(() => { suprimirClique = false; }, 400); }
+      ini = null; col = null; modo = null;
+      if (!vai) { soltar(c, 'translateX(0)', '1', () => { c.style.transition = ''; c.style.transform = ''; c.style.opacity = ''; }); return; }
+      const lado = dx < 0 ? -1 : 1;
+      soltar(c, `translateX(${lado * q.clientWidth}px)`, '0', () => {
+        faseAtiva = lista[destino];
+        faseEscolhida = faseAtiva;
+        guardar('s', 'kb.fase', faseAtiva);
+        render();
+        // a nova coluna entra pelo lado oposto
+        const nova = q.querySelector('.kb-coluna.kb-ativa');
+        if (!nova) return;
+        nova.style.transition = 'none';
+        nova.style.transform = `translateX(${-lado * q.clientWidth * 0.35}px)`;
+        nova.style.opacity = '0';
+        void nova.offsetWidth;
+        soltar(nova, 'translateX(0)', '1', () => { nova.style.transition = ''; nova.style.transform = ''; nova.style.opacity = ''; });
+      });
+    };
+    q.addEventListener('touchend', fim);
+    q.addEventListener('touchcancel', fim);
+    // deslizar não pode abrir o card que estava embaixo do dedo
+    q.addEventListener('click', (ev) => {
+      if (!suprimirClique) return;
+      suprimirClique = false;
+      ev.stopPropagation();
+      ev.preventDefault();
+    }, true);
+  })();
+
   // ---------- abrir card: clique ou Enter ----------
   $('kbQuadro').addEventListener('click', (ev) => {
     const card = ev.target.closest('.kb-card');
