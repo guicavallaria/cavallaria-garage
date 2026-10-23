@@ -352,3 +352,22 @@ test('não vinculados: só recentes (7 dias) ou com card ativo do chassi; antigo
   db.prepare("UPDATE kb_cards SET arquivado_em = '2026-10-23T00:00:00.000Z' WHERE id = ?").run(card.id);
   assert.deepEqual(launch.contarNaoVinculados(db, { agora: AGORA }), { pendentes: 1, antigos: 2 });
 });
+
+test('OS sem etapa "entrada": o período começa na etapa mais antiga do Onmotor (não no dia em que o card foi criado)', async () => {
+  const db = bancoDeTeste();
+  const l = { ...nov.linhas()[0], entrada: null };
+  l.datas = { ...l.datas, entrada: null, orcamento: '2026-10-10 09:00', aguardandoPeca: '2026-10-12 15:00' };
+  db.transaction(() => aplicarLeitura(db, [l], { agora: '2026-10-23T19:00:00.000Z', primeiraCarga: true }))();
+  const card = db.prepare('SELECT * FROM kb_cards WHERE os_numero = ?').get(String(l.osNumber));
+  assert.equal(card.os_entrada_em, null);
+  assert.equal(card.os_inicio_em, '2026-10-10T12:00:00.000Z');
+  db.prepare('UPDATE kb_cards SET chassi = ? WHERE id = ?').run(VIN, card.id);
+  const r = await importar(db, `BMW_${VIN}_AllSystemDTC_20261014103000.pdf`, '2026-10-14T13:30:00.000Z');
+  assert.equal(r.vinculado, true, 'escaneamento de 14/10 entra na OS que começou em 10/10');
+
+  // card antigo (de antes desta correção) sem os_inicio_em: a próxima leitura preenche e revincula
+  db.prepare('UPDATE kb_cards SET os_inicio_em = NULL WHERE id = ?').run(card.id);
+  launch.desvincular(db, r.relatorio.id, { operador: 'Luan' });
+  db.transaction(() => aplicarLeitura(db, [l], { agora: '2026-10-23T19:10:00.000Z' }))();
+  assert.equal(db.prepare('SELECT card_id FROM launch_relatorios WHERE id = ?').get(r.relatorio.id).card_id, card.id);
+});

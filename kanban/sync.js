@@ -14,6 +14,11 @@
 // Leitura que falha não altera nenhum card: só grava o erro no log, e a tela mostra
 // "Sincronização com Onmotor parada desde hh:mm".
 const crypto = require('crypto');
+// Data mais antiga entre a entrada e as etapas da Novidades (UTC ISO), ou null.
+function inicioDaOS(l) {
+  const datas = [l.entrada, ...Object.values(l.datas || {})].map(spParaUtc).filter(Boolean).sort();
+  return datas[0] || null;
+}
 const { registrar: registrarAuditoria } = require('../acesso/auditoria');
 const { parseNovidades } = require('../patio/parser');
 const { formatarPlaca } = require('../patio/placa');
@@ -90,8 +95,8 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
   const inserir = db.prepare(`INSERT INTO kb_cards (
       empresa, os_numero, os_id_interno, placa, placa_normalizada, modelo, km,
       cliente_nome, cliente_telefone, os_entrada_em, os_etapas, os_finalizada_em, os_hash, os_visto_em,
-      fase_id, fase_desde, origem, criado_em, atualizado_em)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`);
+      fase_id, fase_desde, origem, criado_em, atualizado_em, os_inicio_em)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   for (const l of linhas) {
     if (!l.osNumber) { r.avisos.push('linha da Novidades sem número de OS ignorada'); continue; }
@@ -117,7 +122,7 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
       const id = inserir.run(
         EMPRESA, l.osNumber, l.osId || null, placa, placa_normalizada, l.modelo || null, l.km || null,
         l.proprietario || null, l.telefone || null, spParaUtc(l.entrada), JSON.stringify(l.etapas), h, agora,
-        fase, faseDesde, primeiraCarga ? 'carga_inicial' : 'sync', agora, agora,
+        fase, faseDesde, primeiraCarga ? 'carga_inicial' : 'sync', agora, agora, inicioDaOS(l),
       ).lastInsertRowid;
       f.evento(id, 'criado', primeiraCarga
         ? `Card importado do Onmotor na carga inicial — OS ${l.osNumber} (etapa no Onmotor: ${etapa})`
@@ -131,6 +136,14 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
 
     r.vistos.add(card.id);
     db.prepare('UPDATE kb_cards SET os_visto_em = ?, os_sumiu_em = NULL WHERE id = ?').run(agora, card.id);
+    // Início da OS (etapa mais antiga): preenche ou recua; muda o período dos relatórios Launch → revincula.
+    const inicio = inicioDaOS(l);
+    if (inicio && (!card.os_inicio_em || inicio < card.os_inicio_em)) {
+      db.prepare('UPDATE kb_cards SET os_inicio_em = ? WHERE id = ?').run(inicio, card.id);
+      if (card.chassi && !card.arquivado_em) {
+        try { require('./launch').vincularPendentes(db, card.id, { agora }); } catch (e) { r.avisos.push(`OS ${card.os_numero}: vínculo do Launch falhou (${e.message})`); }
+      }
+    }
 
     if (card.os_hash !== h) {
       const mudancas = [];

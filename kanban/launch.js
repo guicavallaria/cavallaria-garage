@@ -31,7 +31,8 @@ function extrairDoNome(nomeArquivo) {
   return { marca: i > 0 ? partes.slice(0, i).join(' ') : null, chassi: normalizarChassi(partes[i]) };
 }
 
-const entradaDoCard = (c) => c.os_entrada_em || c.criado_em;
+// OS sem etapa "entrada" no Onmotor: vale a etapa mais antiga (os_inicio_em); só em último caso a criação do card.
+const entradaDoCard = (c) => c.os_entrada_em || c.os_inicio_em || c.criado_em;
 
 // A data do relatório cai no período da OS? [entrada − 3 dias, finalização/arquivamento ou agora]
 function noPeriodo(card, quando) {
