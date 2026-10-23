@@ -195,7 +195,11 @@ async function confirmarEnvio(db, storage, midiaId, { legenda, operador }, { ago
     db.prepare(`UPDATE kb_midias SET status = 'enviado', enviado_em = ?, tamanho_bytes = ?, chave_miniatura = ?, legenda = ?
                 WHERE id = ?`).run(agora, obj.tamanho, chaveMini, leg, m.id);
     // Foto de checklist não vira registro avulso: o checklist inteiro entra na linha do tempo ao finalizar.
-    if (m.checklist_execucao_id) return { midia_id: m.id, evento_id: null, ja_enviado: false, checklist: true };
+    // Se o checklist já foi finalizado, a mídia nova entra como edição (com operador e hora).
+    if (m.checklist_execucao_id) {
+      require('./checklists').midiaAdicionada(db, m, op, agora);
+      return { midia_id: m.id, evento_id: null, ja_enviado: false, checklist: true };
+    }
     const eventoId = inserirEvento(db, { cardId: m.card_id, tipo: m.tipo, texto: leg, midiaId: m.id, operador: op, agora });
     return { midia_id: m.id, evento_id: eventoId, ja_enviado: false };
   })();
@@ -204,10 +208,12 @@ async function confirmarEnvio(db, storage, midiaId, { legenda, operador }, { ago
 // ---------- leitura ----------
 // Nome sugerido no download do PDF: "vistoria-entrada-v2.pdf".
 function nomePdf(e) {
-  let versao = 1;
-  try { versao = JSON.parse(e.dados || '{}').versao || 1; } catch (_) { /* dados antigos */ }
-  const base = /Vistoria de Entrada/i.test(e.texto || '') ? 'vistoria-entrada' : `documento-${e.id}`;
-  return `${base}-v${versao}.pdf`;
+  let dados = {};
+  try { dados = JSON.parse(e.dados || '{}'); } catch (_) { /* dados antigos */ }
+  const tipo = dados.tipo || (/Vistoria de Entrada/i.test(e.texto || '') ? 'vistoria_entrada' : null);
+  const base = tipo ? tipo.replace(/_/g, '-') : `documento-${e.id}`;
+  const via = dados.via && dados.via !== 'unica' ? `-${dados.via}` : '';
+  return `${base}${via}-v${dados.versao || 1}.pdf`;
 }
 
 async function listarEventos(db, storage, cardId) {

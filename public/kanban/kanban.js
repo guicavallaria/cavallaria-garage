@@ -371,20 +371,33 @@
     const el = $('kbChecklists');
     if (!el || !cardAberto || !cardAberto.checklists) return;
     const c = cardAberto.card;
-    const vistoria = cardAberto.checklists.find((x) => x.codigo === 'entrada');
-    let situacao = 'não feita';
-    let botao = 'Fazer vistoria';
-    if (vistoria && vistoria.status === 'em_andamento') { situacao = `em andamento (${esc(primeiro(vistoria.feito_por))})`; botao = 'Continuar'; }
-    if (vistoria && vistoria.status === 'finalizado') { situacao = `feita por ${esc(primeiro(vistoria.feito_por))} em ${dataBR(vistoria.finalizado_em)}`; botao = 'Ver'; }
-    const pdfAtual = vistoria && vistoria.pdfs[0];
-    const podeAbrir = !c.arquivado_em || (vistoria && vistoria.status === 'finalizado');
+    const lista = cardAberto.checklists;
+    const linhaExec = (x, rotulo) => {
+      const ultima = x.pdfs.length ? x.pdfs[0].versao : null;
+      const atuais = x.pdfs.filter((p) => p.versao === ultima && p.url);
+      const nomeVia = { unica: '📄 PDF', cliente: '📄 Cliente', orcamento: '📄 Orçamento' };
+      const linksPdf = atuais.map((p) => `<a class="kb-link-pequeno" href="${esc(p.url)}" target="_blank" rel="noopener">${nomeVia[p.via] || '📄 PDF'}${ultima > 1 ? ` v${p.versao}` : ''}</a>`).join(' ');
+      const situacao = x.status === 'em_andamento'
+        ? `em andamento (${esc(primeiro(x.feito_por))})`
+        : `${x.codigo === 'entrada' ? 'feita' : 'feito'} por ${esc(primeiro(x.feito_por))} em ${dataBR(x.finalizado_em)}`;
+      const podeAbrir = !c.arquivado_em || x.status === 'finalizado';
+      return `<div class="kb-chk-linha">
+          <span>${rotulo} <small>${situacao}${linksPdf ? ` · ${linksPdf}` : (x.status === 'finalizado' ? ' · PDF sendo gerado…' : '')}</small></span>
+          ${podeAbrir ? `<button type="button" class="kb-botao ${x.status === 'finalizado' ? 'kb-botao-sec' : ''}" data-acao="abrir-checklist" data-codigo="${x.codigo}" data-exec="${x.id}">${x.status === 'finalizado' ? 'Ver' : 'Continuar'}</button>` : ''}
+        </div>`;
+    };
+    const vistoria = lista.find((x) => x.codigo === 'entrada');
+    const revisoes = lista.filter((x) => x.codigo !== 'entrada');
+    const nomeRev = { revisao_basica: '🔧 <strong>Revisão básica</strong>', revisao_completa: '🛠️ <strong>Revisão completa</strong>' };
+    const emAndamento = (cod) => revisoes.some((x) => x.codigo === cod && x.status === 'em_andamento');
     el.innerHTML = `<div class="kb-checklists">
-        <div class="kb-chk-linha">
-          <span>📋 <strong>Vistoria de entrada</strong> <small>${situacao}</small></span>
-          ${podeAbrir ? `<button type="button" class="kb-botao ${vistoria && vistoria.status === 'finalizado' ? 'kb-botao-sec' : ''}" data-acao="abrir-checklist" data-codigo="entrada">${botao}</button>` : ''}
-        </div>
-        ${pdfAtual && pdfAtual.url ? `<a class="kb-link-pequeno" href="${esc(pdfAtual.url)}" target="_blank" rel="noopener">📄 PDF da vistoria${vistoria.pdfs.length > 1 ? ` (versão ${pdfAtual.versao})` : ''}</a>` : ''}
-        ${vistoria && vistoria.status === 'finalizado' && !pdfAtual ? '<small class="kb-dica">PDF sendo gerado…</small>' : ''}
+        ${vistoria ? linhaExec(vistoria, '📋 <strong>Vistoria de entrada</strong>') : `<div class="kb-chk-linha"><span>📋 <strong>Vistoria de entrada</strong> <small>não feita</small></span>
+          ${c.arquivado_em ? '' : '<button type="button" class="kb-botao" data-acao="abrir-checklist" data-codigo="entrada">Fazer vistoria</button>'}</div>`}
+        ${revisoes.map((x) => linhaExec(x, nomeRev[x.codigo] || esc(x.nome))).join('')}
+        ${c.arquivado_em ? '' : `<div class="kb-acoes-card kb-chk-novas">
+          ${emAndamento('revisao_basica') ? '' : '<button type="button" class="kb-botao kb-botao-sec" data-acao="abrir-checklist" data-codigo="revisao_basica">+ Revisão básica</button>'}
+          ${emAndamento('revisao_completa') ? '' : '<button type="button" class="kb-botao kb-botao-sec" data-acao="abrir-checklist" data-codigo="revisao_completa">+ Revisão completa</button>'}
+        </div>`}
       </div>`;
   }
 
@@ -687,7 +700,7 @@
       case 'confirmar-arquivar': b.disabled = true; await arquivar(c.id); break;
       case 'desarquivar': b.disabled = true; await desarquivar(c.id); break;
 
-      case 'abrir-checklist': window.KanbanChecklist.abrir(c.id, b.dataset.codigo); break;
+      case 'abrir-checklist': window.KanbanChecklist.abrir(c.id, b.dataset.codigo, { execId: b.dataset.exec ? Number(b.dataset.exec) : null }); break;
       case 'reg-texto': cardAberto.compositor = { tipo: 'texto', texto: '' }; renderCompositor(); break;
       case 'reg-foto': $('kbInFoto').click(); break;
       case 'reg-video': $('kbInVideo').click(); break;

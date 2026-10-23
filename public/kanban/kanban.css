@@ -341,3 +341,34 @@ button { font: inherit; }
 .kb-chk-grade figcaption { font-size: 12px; margin-top: 2px; }
 a.kb-botao { text-decoration: none; display: inline-flex; align-items: center; }
 .kb-botao-pdf { margin: 4px 0; min-height: 40px; font-size: 14px; }
+
+/* ---------- Etapa 5: revisões (item genérico, anexos, peças, edição) ---------- */
+.kb-chk-novas { margin: 4px 0 0; }
+.kb-chk-estado { grid-template-columns: repeat(3, 1fr); }
+.kb-chk-estado button { min-height: 64px; font-size: 16px; font-weight: 600; }
+.kb-chk-estado button.kb-est-bom[aria-pressed="true"] { background: #2e7d32; border-color: #2e7d32; }
+.kb-chk-estado button.kb-est-regular[aria-pressed="true"] { background: #f9a825; border-color: #f9a825; color: #1f2330; }
+.kb-chk-estado button.kb-est-troca[aria-pressed="true"], .kb-chk-estado button.kb-est-reparo[aria-pressed="true"] { background: #c62828; border-color: #c62828; }
+.kb-chk-simnao2 { grid-template-columns: 1fr 1fr; }
+.kb-chk-simnao2 button { min-height: 64px; font-size: 18px; font-weight: 600; }
+.kb-chk-nt { margin-top: 10px; width: 100%; }
+.kb-chk-nt[aria-pressed="true"] { background: #4b5160; color: #fff; }
+.kb-chk-medida-p { margin-top: 10px; font-size: 15px; color: var(--texto); }
+.kb-chk-medida-p input { font-size: 22px; padding: 10px; }
+.kb-chk-foto-p { min-height: 140px; }
+.kb-chk-anexos { margin-top: 18px; border-top: 1px dashed var(--linha); padding-top: 6px; }
+.kb-chk-anexos ul { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 8px; }
+.kb-chk-anexos li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kb-chk-com { background: #f4f5f8; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+.kb-chk-pecas { display: grid; gap: 10px; margin-bottom: 10px; }
+.kb-chk-peca { display: grid; grid-template-columns: 1fr 96px auto; gap: 6px; align-items: center; border: 1px solid var(--linha); border-radius: 8px; padding: 8px; }
+.kb-chk-peca small { grid-column: 1 / -1; }
+.kb-chk-peca input { font-size: 16px; padding: 8px; border: 1px solid #c9ced8; border-radius: 6px; width: 100%; }
+.kb-chk-horas { display: flex; align-items: center; gap: 4px; }
+.kb-chk-ver { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--linha); padding: 6px 0; font-size: 14px; }
+.kb-chk-ver > span:last-child { text-align: right; }
+.kb-tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12.5px; font-weight: 700; }
+.kb-tag-bom { background: #e3f3e6; color: #1b6e2c; }
+.kb-tag-regular { background: #fff3c4; color: #7a5a00; }
+.kb-tag-troca, .kb-tag-reparo { background: #fde3e1; color: #a32018; }
+.kb-tag-nt { background: #eceef2; color: #4b5160; }

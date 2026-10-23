@@ -108,9 +108,10 @@ test('desarquivar um card que o sistema arquivou não deixa o sync arquivar de n
 test('mecânico do card: troca manual e volta para o do pátio', () => {
   const db = bancoComCards();
   const c = card(db, OS);
-  const edson = db.prepare("SELECT id FROM mecanicos WHERE nome = 'Edson'").get().id;
-  assert.equal(acoes.definirMecanico(db, c.id, { mecanicoId: edson, operador: 'Vanilton' }).mecanico_id, edson);
-  assert.equal(acoes.definirMecanico(db, c.id, { mecanicoId: null, operador: 'Vanilton' }).mecanico_id, null);
+  // lista de mecânicos do kanban (kb_mecanicos), não o cadastro da agenda
+  const edson = db.prepare("SELECT id FROM kb_mecanicos WHERE nome = 'Edson'").get().id;
+  assert.equal(acoes.definirMecanico(db, c.id, { mecanicoId: edson, operador: 'Vanilton' }).kb_mecanico_id, edson);
+  assert.equal(acoes.definirMecanico(db, c.id, { mecanicoId: null, operador: 'Vanilton' }).kb_mecanico_id, null);
   assert.throws(() => acoes.definirMecanico(db, c.id, { mecanicoId: 999, operador: 'Vanilton' }), (e) => e.status === 400);
 });
 

@@ -101,11 +101,12 @@ function desarquivarCard(db, id, { operador }, { agora = agoraUtc() } = {}) {
 function definirMecanico(db, id, { mecanicoId, operador }, { agora = agoraUtc() } = {}) {
   validarOperador(operador);
   const mid = mecanicoId === null || mecanicoId === undefined || mecanicoId === '' ? null : Number(mecanicoId);
-  if (mid !== null && !db.prepare('SELECT 1 FROM mecanicos WHERE id = ? AND ativo = 1').get(mid)) {
+  // Lista de mecânicos do kanban (kb_mecanicos), não o cadastro de profissionais da agenda.
+  if (mid !== null && !db.prepare('SELECT 1 FROM kb_mecanicos WHERE id = ? AND removido_em IS NULL').get(mid)) {
     throw new ErroAcao(400, 'Mecânico inválido');
   }
   const c = cardOu404(db, id);
-  db.prepare('UPDATE kb_cards SET mecanico_id = ?, atualizado_em = ? WHERE id = ?').run(mid, agora, c.id);
+  db.prepare('UPDATE kb_cards SET kb_mecanico_id = ?, atualizado_em = ? WHERE id = ?').run(mid, agora, c.id);
   return cardOu404(db, c.id);
 }
 
@@ -142,10 +143,12 @@ function buscar(db, { q = '', modo = 'ativos', limite = 100 } = {}) {
 // registrou algo no kanban nos últimos 90 dias. (Na Etapa 7 vira a lista de usuários.)
 function operadoresConhecidos(db, { agora = new Date() } = {}) {
   const desde = new Date(agora.getTime() - 90 * 86_400_000).toISOString();
-  const mecanicos = db.prepare('SELECT nome FROM mecanicos WHERE ativo = 1 ORDER BY ordem, nome').all().map((m) => m.nome);
+  const mecanicos = db.prepare('SELECT nome FROM kb_mecanicos WHERE removido_em IS NULL ORDER BY ordem, nome').all().map((m) => m.nome);
+  // "Edson Antonio Benin Junior" já está coberto pelo mecânico "Edson": não repete.
+  const primeiros = new Set(mecanicos.map((n) => semAcento(n).split(/\s+/)[0]));
   const recentes = db.prepare(`SELECT operador_nome AS nome, MAX(criado_em) AS ultimo FROM kb_eventos
       WHERE operador_nome <> 'Sistema' AND criado_em >= ? GROUP BY operador_nome ORDER BY ultimo DESC LIMIT 30`).all(desde)
-    .map((r) => r.nome);
+    .map((r) => r.nome).filter((n) => !primeiros.has(semAcento(n).split(/\s+/)[0]));
   const vistos = new Set();
   return [...mecanicos, ...recentes].filter((n) => {
     const k = semAcento(n);

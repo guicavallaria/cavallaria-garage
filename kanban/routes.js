@@ -9,22 +9,25 @@ const acoes = require('./acoes');
 const linhaTempo = require('./linha-tempo');
 const checklists = require('./checklists');
 const pdfs = require('./pdf');
+const links = require('./links');
 
 const primeiroNome = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
 
-// Mecânico do card: o definido no próprio card (Etapa 2) ou, na falta, o do painel de pátio.
+// Mecânico do card (lista de mecânicos do kanban): o escolhido no próprio card ou, na falta,
+// o do painel de pátio, traduzido pelo vínculo kb_mecanicos.agenda_mecanico_id.
 const SQL_CARDS = `
   SELECT c.*, f.nome AS fase_nome,
-         COALESCE(c.mecanico_id, pv.mecanico_id) AS mecanico_efetivo_id,
-         m.nome AS mecanico_nome,
+         COALESCE(kc.id, kp.id) AS mecanico_efetivo_id,
+         COALESCE(kc.nome, kp.nome) AS mecanico_nome,
          (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL AND md.tipo <> 'pdf') AS qtd_midias,
          (SELECT x.status FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
             WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
-  LEFT JOIN mecanicos m ON m.id = COALESCE(c.mecanico_id, pv.mecanico_id)`;
+  LEFT JOIN kb_mecanicos kc ON kc.id = c.kb_mecanico_id
+  LEFT JOIN kb_mecanicos kp ON kp.agenda_mecanico_id = pv.mecanico_id AND kp.removido_em IS NULL AND c.kb_mecanico_id IS NULL`;
 
 function resumoCard(c) {
   return {
@@ -42,7 +45,7 @@ function resumoCard(c) {
     os_sumiu_em: c.os_sumiu_em,
     mecanico_id: c.mecanico_efetivo_id,
     mecanico_nome: c.mecanico_nome,
-    mecanico_do_card: c.mecanico_id !== null && c.mecanico_id !== undefined, // false = vem do painel de pátio
+    mecanico_do_card: c.kb_mecanico_id !== null && c.kb_mecanico_id !== undefined, // false = vem do painel de pátio
     tem_chassi: Boolean(c.chassi),
     arquivado_em: c.arquivado_em,
     arquivado_por: c.arquivado_por,
@@ -65,13 +68,20 @@ async function responder(res, fn, log) {
 
 function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2, storage = null, gerarPdf = null }) {
   // Geração de PDF injetável (testes usam um renderizador falso, sem Chrome).
-  const gerarPdfVistoria = gerarPdf || ((execId, operador) => pdfs.naFila(() => pdfs.gerarPdfVistoria(db, storage, execId, { operador })));
+  const gerarPdfVistoria = gerarPdf || ((execId, operador) => pdfs.naFila(() => pdfs.gerarPdfChecklist(db, storage, execId, { operador })));
+  const chkHistorico = (execId, itemId) => {
+    const exec = db.prepare('SELECT modelo_id FROM kb_checklist_execucoes WHERE id = ?').get(Number(execId));
+    if (!exec) throw new acoes.ErroAcao(404, 'Checklist não encontrado');
+    const item = checklists.itensDoModelo(checklists.carregarModelo(db, exec.modelo_id)).find((i) => i.id === Number(itemId));
+    if (!item) throw new acoes.ErroAcao(404, 'Item não pertence a este checklist');
+    return checklists.historicoItem(db, execId, itemId).map((h) => ({ ...h, resumo: checklists.resumoValor(item, h.valor_anterior) }));
+  };
   const r = express.Router();
 
   r.get('/estado', (req, res) => {
     const fases = db.prepare('SELECT id, nome FROM kb_fases ORDER BY ordem').all();
     const cards = db.prepare(`${SQL_CARDS} WHERE c.arquivado_em IS NULL ORDER BY c.fase_desde ASC`).all().map(resumoCard);
-    const mecanicos = db.prepare('SELECT id, nome, cor FROM mecanicos WHERE ativo = 1 ORDER BY ordem, nome').all();
+    const mecanicos = db.prepare('SELECT id, nome FROM kb_mecanicos WHERE removido_em IS NULL ORDER BY ordem, nome').all();
     res.json({
       agora: new Date().toISOString(),
       fonte: modoFonte(),
@@ -184,6 +194,67 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     }
     return { ok: true, execucao_id: out.execucao.id, ja_finalizado: out.ja_finalizado };
   }, log));
+
+  // ---------- Etapa 5: anexos e comentários por item, peças, histórico, links ----------
+  r.get('/checklists/:id/itens/:itemId/historico', (req, res) => responder(res, () =>
+    chkHistorico(req.params.id, req.params.itemId), log));
+
+  r.post('/checklists/:id/itens/:itemId/comentarios', (req, res) => responder(res, () => {
+    const out = checklists.comentar(db, req.params.id, req.params.itemId, { texto: corpo(req).texto, operador: corpo(req).operador });
+    broadcast('kanban');
+    return out;
+  }, log));
+
+  r.post('/checklists/comentarios/:id/remover', (req, res) => responder(res, () =>
+    checklists.removerComentario(db, req.params.id, { operador: corpo(req).operador }), log));
+
+  r.post('/checklists/midias/:id/remover', (req, res) => responder(res, () => {
+    const out = checklists.removerMidiaItem(db, req.params.id, { operador: corpo(req).operador });
+    broadcast('kanban');
+    return out;
+  }, log));
+
+  r.post('/checklists/:id/pecas', (req, res) => responder(res, () => checklists.adicionarPeca(db, req.params.id, corpo(req)), log));
+  r.put('/checklists/pecas/:id', (req, res) => responder(res, () => checklists.salvarPeca(db, req.params.id, corpo(req)), log));
+  r.post('/checklists/pecas/:id/remover', (req, res) => responder(res, () =>
+    checklists.removerPeca(db, req.params.id, { operador: corpo(req).operador }), log));
+
+  // Link de 7 dias para mandar o PDF ao cliente (WhatsApp). Revogar: Etapa 7 (gestor).
+  r.post('/pdfs/:id/link', (req, res) => responder(res, () => {
+    const p = db.prepare('SELECT midia_id, via FROM kb_pdfs WHERE id = ?').get(Number(req.params.id));
+    if (!p) throw new acoes.ErroAcao(404, 'PDF não encontrado');
+    // A via orçamento (peças e horas) é interna: nunca sai por link para o cliente.
+    if (p.via === 'orcamento') throw new acoes.ErroAcao(400, 'A via orçamento é de uso interno. Envie a via do cliente.');
+    return links.criarLink(db, p.midia_id, { finalidade: 'pdf_cliente', operador: corpo(req).operador });
+  }, log));
+
+  // ---------- administração (mecânicos e modelos de checklist) ----------
+  // Ponto único de permissão da área de administração. Hoje o app tem só a senha
+  // compartilhada, então quem está logado passa. Na Etapa 7 (logins individuais) esta
+  // função passa a liberar apenas o login da Gerência (pedido de 23/10/2026).
+  const exigirGerencia = (req) => { if (req.session && req.session.usuario && req.session.usuario.perfil !== 'gerencia') throw new acoes.ErroAcao(403, 'Só a Gerência pode alterar isto'); };
+  const mecanicos = require('./mecanicos');
+  r.get('/admin/mecanicos', (req, res) => responder(res, () => { exigirGerencia(req); return mecanicos.listar(db, { incluirRemovidos: true }); }, log));
+  r.post('/admin/mecanicos', (req, res) => responder(res, () => {
+    exigirGerencia(req);
+    const m = mecanicos.adicionar(db, corpo(req));
+    broadcast('kanban');
+    return m;
+  }, log));
+  r.post('/admin/mecanicos/:id/remover', (req, res) => responder(res, () => {
+    exigirGerencia(req);
+    const out = mecanicos.remover(db, req.params.id, corpo(req));
+    broadcast('kanban');
+    return out;
+  }, log));
+
+  const modelos = require('./modelos');
+  r.get('/admin/modelos', (req, res) => responder(res, () => ({
+    modelos: modelos.listar(db), tipos_componente: modelos.TIPOS_COMPONENTE, tipos_secao: modelos.TIPOS_SECAO,
+  }), log));
+  r.get('/admin/modelos/:id', (req, res) => responder(res, () => checklists.carregarModelo(db, req.params.id), log));
+  r.post('/admin/modelos/:codigo/versoes', (req, res) => responder(res, () => { exigirGerencia(req); return modelos.salvarNovaVersao(db, req.params.codigo, corpo(req)); }, log));
+  r.post('/admin/modelos/:id/ativar', (req, res) => responder(res, () => { exigirGerencia(req); return modelos.ativarVersao(db, req.params.id, corpo(req)); }, log));
 
   // "Exportar PDF": gera uma versão nova agora (as anteriores ficam guardadas).
   r.post('/checklists/:id/pdf', (req, res) => responder(res, async () => {

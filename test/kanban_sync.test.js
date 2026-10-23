@@ -37,7 +37,9 @@ test('migração 003: cria as 9 fases na ordem e é reversível', () => {
   assert.equal(fases.length, 9);
   assert.equal(fases[0].nome, 'Aguardando Entrada');
   assert.equal(fases[8].nome, 'Veículo Pronto / Aguardando Retirada');
-  assert.deepEqual(reverter(db, undefined, 3), ['005_checklists.js', '004_kanban_midias.js', '003_kanban_base.js']);
+  const { listar } = require('../migrations');
+  const kanban = listar(require('path').join(__dirname, '..', 'migrations')).slice(2).reverse();
+  assert.deepEqual(reverter(db, undefined, kanban.length), kanban);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'kb_cards'").get().n, 0);
 });
 

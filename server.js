@@ -66,6 +66,11 @@ app.post('/api/posvendas/upload', express.text({ limit: '30mb', type: '*/*' }), 
   }
 });
 
+// ---------- Kanban: links públicos com validade (vídeo do QR no PDF, PDF para o cliente) ----------
+// Fica ANTES do login: quem abre é o cliente. O app confere validade/revogação e redireciona
+// para uma URL assinada de 15 min do bucket.
+app.get('/m/:token', require('./kanban/links').rotaPublica({ db, storage: kanbanStorage }));
+
 app.use((req, res, next) => {
   if (req.session.autenticado) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ erro: 'Não autenticado' });
