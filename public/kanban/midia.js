@@ -216,10 +216,12 @@
   const progresso = new Map(); // cliente_id → 0..1 (só em memória)
   const avisar = () => listarItens().then((itens) => ouvintes.forEach((fn) => fn(itens, progresso)));
 
-  async function enfileirar({ cardId, preparado, legenda, operador }) {
+  // `vinculo` (opcional): { checklist_execucao_id, checklist_item_id, avaria_id } — foto de checklist.
+  async function enfileirar({ cardId, preparado, legenda, operador, vinculo = null }) {
     const item = {
       cliente_id: uuid(),
       card_id: Number(cardId),
+      vinculo,
       tipo: preparado.tipo,
       mime: preparado.mime,
       blob: preparado.blob,
@@ -275,6 +277,7 @@
     const p = await postJson(`/api/kanban/cards/${item.card_id}/midias`, {
       cliente_id: item.cliente_id, tipo: item.tipo, mime: item.mime, tamanho: item.meta.tamanho, duracao: item.meta.duracao,
       largura: item.meta.largura, altura: item.meta.altura, miniatura: Boolean(item.miniatura), operador: item.operador,
+      ...(item.vinculo || {}),
     });
     if (!p.ja_enviado) {
       const total = item.meta.tamanho + (item.miniatura ? item.miniatura.size : 0);

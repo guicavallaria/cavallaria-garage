@@ -93,6 +93,12 @@ function criarStorage(env = process.env) {
       }
     },
 
+    // Lê o objeto inteiro (fotos que entram nos PDFs gerados no servidor).
+    async ler(chave) {
+      const r = await interno.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: chave }));
+      return Buffer.from(await r.Body.transformToByteArray());
+    },
+
     // Para PDFs gerados no servidor (Etapas 4 e 5).
     async enviar(chave, corpo, contentType) {
       await interno.send(new PutObjectCommand({ Bucket: cfg.bucket, Key: chave, Body: corpo, ContentType: contentType }));

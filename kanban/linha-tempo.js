@@ -150,13 +150,16 @@ async function pedirEnvio(db, storage, cardId, dados, { agora = agoraUtc() } = {
 
   const c = cardAtivo(db, cardId);
   const { base, ext, bytes, dur } = validarPedido(dados);
+  // Mídia de item de checklist: fica presa ao item (e à avaria), nunca solta no card.
+  const vinculo = require('./checklists').validarVinculoMidia(db, c.id, dados) || {};
   const comMiniatura = Boolean(dados.miniatura) && (dados.tipo === 'foto' || dados.tipo === 'video');
   const chave = novaChave(c.id, ext, agora);
   const id = db.prepare(`INSERT INTO kb_midias (cliente_id, chave_objeto, chave_miniatura, tipo, mime, tamanho_bytes, duracao_s,
-      largura, altura, card_id, status, autor_nome, criado_em)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)`).run(
+      largura, altura, card_id, checklist_execucao_id, checklist_item_id, avaria_id, status, autor_nome, criado_em)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)`).run(
     clienteId, chave.objeto, comMiniatura ? chave.miniatura : null, dados.tipo, base, bytes, dur,
-    Number(dados.largura) || null, Number(dados.altura) || null, c.id, op, agora,
+    Number(dados.largura) || null, Number(dados.altura) || null, c.id,
+    vinculo.execucao_id || null, vinculo.item_id || null, vinculo.avaria_id || null, op, agora,
   ).lastInsertRowid;
   const m = db.prepare('SELECT * FROM kb_midias WHERE id = ?').get(id);
   return { midia_id: id, mime: base, ...(await urlsDeEnvio(storage, m)) };
@@ -186,16 +189,27 @@ async function confirmarEnvio(db, storage, midiaId, { legenda, operador }, { ago
   return db.transaction(() => {
     const atual = db.prepare('SELECT status FROM kb_midias WHERE id = ?').get(m.id);
     if (atual.status === 'enviado') {
-      return { midia_id: m.id, evento_id: db.prepare('SELECT id FROM kb_eventos WHERE midia_id = ?').get(m.id).id, ja_enviado: true };
+      const ev = db.prepare('SELECT id FROM kb_eventos WHERE midia_id = ?').get(m.id);
+      return { midia_id: m.id, evento_id: ev ? ev.id : null, ja_enviado: true };
     }
     db.prepare(`UPDATE kb_midias SET status = 'enviado', enviado_em = ?, tamanho_bytes = ?, chave_miniatura = ?, legenda = ?
                 WHERE id = ?`).run(agora, obj.tamanho, chaveMini, leg, m.id);
+    // Foto de checklist não vira registro avulso: o checklist inteiro entra na linha do tempo ao finalizar.
+    if (m.checklist_execucao_id) return { midia_id: m.id, evento_id: null, ja_enviado: false, checklist: true };
     const eventoId = inserirEvento(db, { cardId: m.card_id, tipo: m.tipo, texto: leg, midiaId: m.id, operador: op, agora });
     return { midia_id: m.id, evento_id: eventoId, ja_enviado: false };
   })();
 }
 
 // ---------- leitura ----------
+// Nome sugerido no download do PDF: "vistoria-entrada-v2.pdf".
+function nomePdf(e) {
+  let versao = 1;
+  try { versao = JSON.parse(e.dados || '{}').versao || 1; } catch (_) { /* dados antigos */ }
+  const base = /Vistoria de Entrada/i.test(e.texto || '') ? 'vistoria-entrada' : `documento-${e.id}`;
+  return `${base}-v${versao}.pdf`;
+}
+
 async function listarEventos(db, storage, cardId) {
   const eventos = db.prepare(`
     SELECT e.id, e.tipo, e.texto, e.dados, e.operador_nome, e.criado_em, e.editado_em,
@@ -216,7 +230,9 @@ async function listarEventos(db, storage, cardId) {
         largura: e.largura, altura: e.altura, url: null, miniatura_url: null,
       };
       if (podeAssinar) {
-        midia.url = await storage.urlVer(e.chave_objeto);
+        midia.url = e.m_tipo === 'pdf'
+          ? await storage.urlVer(e.chave_objeto, { nomeArquivo: nomePdf(e), contentType: 'application/pdf' })
+          : await storage.urlVer(e.chave_objeto);
         midia.miniatura_url = e.chave_miniatura ? await storage.urlVer(e.chave_miniatura) : null;
       }
     }

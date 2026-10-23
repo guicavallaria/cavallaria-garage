@@ -84,7 +84,20 @@
   <input id="kbInAudio" type="file" accept="audio/*" hidden />
   <input id="kbInGaleria" type="file" accept="image/*,video/*" multiple hidden />
 
+  <!-- Checklist guiado (vistoria de entrada): tela cheia, acima do painel do card. -->
+  <div id="kbChk" class="kb-chk" hidden role="dialog" aria-modal="true" aria-labelledby="kbChkTitulo">
+    <div class="kb-chk-topo">
+      <button type="button" class="kb-btn-fechar" data-acao="chk-sair" aria-label="Sair (o que foi feito fica salvo)" title="Sair: o que foi feito fica salvo">✕</button>
+      <h2 id="kbChkTitulo"></h2>
+    </div>
+    <div id="kbChkProgresso" class="kb-barra kb-chk-barra"></div>
+    <div id="kbChkCorpo" class="kb-chk-corpo"></div>
+    <div id="kbChkNav" class="kb-chk-nav"></div>
+  </div>
+  <input id="kbInChk" type="file" accept="image/*" capture="environment" hidden />
+
   <script src="/kanban/midia.js"></script>
   <script src="/kanban/kanban.js"></script>
+  <script src="/kanban/checklist.js"></script>
 </body>
 </html>

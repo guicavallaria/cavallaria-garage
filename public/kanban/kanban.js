@@ -132,6 +132,8 @@
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
+        ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
+        ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
       ${!c.os_finalizada_em && c.os_sumiu_em ? '<span class="kb-selo kb-selo-sumiu">Saiu da Novidades do Onmotor</span>' : ''}
@@ -311,6 +313,7 @@
   async function abrirCard(id) {
     const mesmo = cardAberto && cardAberto.id === Number(id);
     if (!mesmo) cardAberto = { id: Number(id), card: null, modo: null, compositor: null, editando: null, removendo: null, versoes: {} };
+    if ($('kbPainel').hidden) history.pushState({ kb: 'card' }, '');
     if (!mesmo) {
       $('kbPainelTitulo').textContent = 'Carregando…';
       $('kbPainelCorpo').innerHTML = '';
@@ -328,6 +331,7 @@
         renderLinhaTempo();
         if (!cardAberto.compositor) renderCompositor(); // não redesenha o que está sendo digitado/gravado
       } else renderPainel();
+      carregarChecklists();
     } catch (e) {
       $('kbPainelCorpo').innerHTML = `<p class="kb-vazio">${esc(e.message)}</p>`;
     }
@@ -339,6 +343,7 @@
   function renderPainel() {
     $('kbPainelCorpo').innerHTML = `
       <div id="kbCabecalho"></div>
+      <div id="kbChecklists"></div>
       <div id="kbCompositor"></div>
       <h3 class="kb-sec">Linha do tempo</h3>
       <ul id="kbPendentes" class="kb-pendentes"></ul>
@@ -348,6 +353,39 @@
     renderCompositor();
     renderLinhaTempo();
     M.listarItens().then(renderPendentes);
+  }
+
+  // ---------- checklists do card (Etapa 4: vistoria de entrada) ----------
+  async function carregarChecklists() {
+    if (!cardAberto) return;
+    const id = cardAberto.id;
+    try {
+      const lista = await api(`/api/kanban/cards/${id}/checklists`);
+      if (!cardAberto || cardAberto.id !== id) return;
+      cardAberto.checklists = lista;
+      renderChecklists();
+    } catch (_) { /* o painel funciona sem a lista */ }
+  }
+
+  function renderChecklists() {
+    const el = $('kbChecklists');
+    if (!el || !cardAberto || !cardAberto.checklists) return;
+    const c = cardAberto.card;
+    const vistoria = cardAberto.checklists.find((x) => x.codigo === 'entrada');
+    let situacao = 'não feita';
+    let botao = 'Fazer vistoria';
+    if (vistoria && vistoria.status === 'em_andamento') { situacao = `em andamento (${esc(primeiro(vistoria.feito_por))})`; botao = 'Continuar'; }
+    if (vistoria && vistoria.status === 'finalizado') { situacao = `feita por ${esc(primeiro(vistoria.feito_por))} em ${dataBR(vistoria.finalizado_em)}`; botao = 'Ver'; }
+    const pdfAtual = vistoria && vistoria.pdfs[0];
+    const podeAbrir = !c.arquivado_em || (vistoria && vistoria.status === 'finalizado');
+    el.innerHTML = `<div class="kb-checklists">
+        <div class="kb-chk-linha">
+          <span>📋 <strong>Vistoria de entrada</strong> <small>${situacao}</small></span>
+          ${podeAbrir ? `<button type="button" class="kb-botao ${vistoria && vistoria.status === 'finalizado' ? 'kb-botao-sec' : ''}" data-acao="abrir-checklist" data-codigo="entrada">${botao}</button>` : ''}
+        </div>
+        ${pdfAtual && pdfAtual.url ? `<a class="kb-link-pequeno" href="${esc(pdfAtual.url)}" target="_blank" rel="noopener">📄 PDF da vistoria${vistoria.pdfs.length > 1 ? ` (versão ${pdfAtual.versao})` : ''}</a>` : ''}
+        ${vistoria && vistoria.status === 'finalizado' && !pdfAtual ? '<small class="kb-dica">PDF sendo gerado…</small>' : ''}
+      </div>`;
   }
 
   function renderCabecalho() {
@@ -535,7 +573,7 @@
 
   // ---------- linha do tempo ----------
   const ICONE = {
-    criado: '🆕', fase: '➡️', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
+    criado: '🆕', fase: '➡️', checklist_iniciado: '📋', checklist_finalizado: '✅', checklist_editado: '✏️', pdf: '📄', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
     texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️',
   };
 
@@ -552,6 +590,7 @@
         <a class="kb-link-pequeno" href="${esc(m.url)}" target="_blank" rel="noopener">Abrir vídeo em outra aba</a>`;
     }
     if (m.tipo === 'audio') return `<audio class="kb-player-audio" src="${esc(m.url)}" controls preload="none"></audio>`;
+    if (m.tipo === 'pdf') return `<a class="kb-botao kb-botao-sec kb-botao-pdf" href="${esc(m.url)}" target="_blank" rel="noopener">📄 Abrir PDF</a>`;
     return `<a href="${esc(m.url)}" target="_blank" rel="noopener">Abrir arquivo</a>`;
   }
 
@@ -601,7 +640,7 @@
       else if (i.erro) situacao = `Nova tentativa em instantes (${esc(i.erro)})`;
       else situacao = 'Na fila';
       return `<li class="kb-pendente${i.estado === 'falhou' ? ' kb-pendente-erro' : ''}">
-        <div><strong>${ICONE[i.tipo]} ${nome[i.tipo]}</strong> · ${M.tamanhoTexto(i.meta.tamanho)} · ${situacao}</div>
+        <div><strong>${ICONE[i.tipo]} ${nome[i.tipo]}${i.vinculo ? ' da vistoria' : ''}</strong> · ${M.tamanhoTexto(i.meta.tamanho)} · ${situacao}</div>
         ${pct !== null ? `<div class="kb-barra"><span style="width:${pct}%"></span></div>` : ''}
         ${i.estado === 'falhou' ? `<div class="kb-acoes-card"><button type="button" class="kb-botao" data-acao="fila-tentar" data-id="${i.cliente_id}">Tentar de novo</button>
           <button type="button" class="kb-botao kb-botao-sec" data-acao="fila-descartar" data-id="${i.cliente_id}">Descartar</button></div>` : ''}
@@ -648,6 +687,7 @@
       case 'confirmar-arquivar': b.disabled = true; await arquivar(c.id); break;
       case 'desarquivar': b.disabled = true; await desarquivar(c.id); break;
 
+      case 'abrir-checklist': window.KanbanChecklist.abrir(c.id, b.dataset.codigo); break;
       case 'reg-texto': cardAberto.compositor = { tipo: 'texto', texto: '' }; renderCompositor(); break;
       case 'reg-foto': $('kbInFoto').click(); break;
       case 'reg-video': $('kbInVideo').click(); break;
@@ -739,7 +779,10 @@
   }
   $('kbVisor').addEventListener('click', () => { $('kbVisor').hidden = true; $('kbFotoGrande').src = ''; });
 
-  function fecharCard() {
+  // O painel do card ocupa uma entrada no histórico: o "voltar" do Android / gesto do iPhone
+  // fecha o card em vez de sair do kanban. `historico: true` = chamado pelo próprio voltar.
+  function fecharCard({ historico = false } = {}) {
+    if (!historico && history.state && history.state.kb === 'card') { history.back(); return; }
     if (cardAberto && cardAberto.compositor) fecharCompositor();
     clearInterval(refrescoUrls);
     cardAberto = null;
@@ -861,6 +904,25 @@
     es.addEventListener('kanban', () => carregar());
   } catch (_) { /* sem SSE: o intervalo abaixo cobre */ }
   setInterval(carregar, 60_000);
+
+  // Voltar do navegador/celular: fecha primeiro o checklist, depois o card.
+  window.addEventListener('popstate', () => {
+    if (!$('kbChk').hidden && window.KanbanChecklist) { window.KanbanChecklist.fechar({ historico: true }); return; }
+    if (!$('kbPainel').hidden) fecharCard({ historico: true });
+  });
+  // Recarregou com um card "aberto" no histórico: limpa, senão o próximo fechar voltaria uma página.
+  if (history.state && history.state.kb) history.replaceState(null, '');
+
+  // Funções compartilhadas com a tela de checklist (checklist.js).
+  window.KanbanApp = {
+    api, avisar, esc, dataBR, garantirOperador, abrirModalOperador,
+    operadorAtual: () => operador,
+    // Ao fechar o checklist: atualiza o card aberto e o quadro.
+    checklistFechado: (cardId) => {
+      if (cardAberto && cardAberto.id === Number(cardId)) abrirCard(cardId);
+      carregar();
+    },
+  };
 
   mostrarOperador();
   carregar();

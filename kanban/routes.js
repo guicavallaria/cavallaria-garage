@@ -7,6 +7,8 @@ const { modoFonte, fonteConfigurada } = require('./fonte');
 const { anoCurto } = require('../patio/veiculo');
 const acoes = require('./acoes');
 const linhaTempo = require('./linha-tempo');
+const checklists = require('./checklists');
+const pdfs = require('./pdf');
 
 const primeiroNome = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
@@ -16,7 +18,9 @@ const SQL_CARDS = `
   SELECT c.*, f.nome AS fase_nome,
          COALESCE(c.mecanico_id, pv.mecanico_id) AS mecanico_efetivo_id,
          m.nome AS mecanico_nome,
-         (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL) AS qtd_midias
+         (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL AND md.tipo <> 'pdf') AS qtd_midias,
+         (SELECT x.status FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
+            WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -43,6 +47,7 @@ function resumoCard(c) {
     arquivado_em: c.arquivado_em,
     arquivado_por: c.arquivado_por,
     qtd_midias: c.qtd_midias || 0,
+    vistoria_status: c.vistoria_status || null, // null | em_andamento | finalizado
   };
 }
 
@@ -58,7 +63,9 @@ async function responder(res, fn, log) {
   }
 }
 
-function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2, storage = null }) {
+function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2, storage = null, gerarPdf = null }) {
+  // Geração de PDF injetável (testes usam um renderizador falso, sem Chrome).
+  const gerarPdfVistoria = gerarPdf || ((execId, operador) => pdfs.naFila(() => pdfs.gerarPdfVistoria(db, storage, execId, { operador })));
   const r = express.Router();
 
   r.get('/estado', (req, res) => {
@@ -136,6 +143,53 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   r.post('/midias/:id/confirmar', (req, res) => responder(res, async () => {
     const out = await linhaTempo.confirmarEnvio(db, storage, req.params.id, { legenda: corpo(req).legenda, operador: corpo(req).operador });
     if (!out.ja_enviado) broadcast('kanban');
+    return { ok: true, ...out };
+  }, log));
+
+  // ---------- Etapa 4: checklists (vistoria de entrada) e PDF ----------
+  r.get('/cards/:id/checklists', (req, res) => responder(res, () => checklists.listarDoCard(db, storage, req.params.id), log));
+
+  r.get('/checklists/modelos/:codigo', (req, res) => responder(res, () => checklists.modeloAtivo(db, req.params.codigo), log));
+
+  r.post('/cards/:id/checklists', (req, res) => responder(res, () => {
+    const b = corpo(req);
+    const out = checklists.iniciar(db, req.params.id, b.codigo, { feitoPor: b.feito_por, operador: b.operador });
+    if (!out.retomada) broadcast('kanban');
+    return { ok: true, execucao_id: out.execucao.id, retomada: out.retomada, status: out.execucao.status };
+  }, log));
+
+  r.get('/checklists/:id', (req, res) => responder(res, () => checklists.estado(db, storage, req.params.id), log));
+
+  r.put('/checklists/:id/respostas/:itemId', (req, res) => responder(res, () =>
+    checklists.responder(db, req.params.id, req.params.itemId, { valor: corpo(req).valor, operador: corpo(req).operador }), log));
+
+  r.post('/checklists/:id/avarias', (req, res) => responder(res, () => {
+    const b = corpo(req);
+    return checklists.criarAvaria(db, req.params.id, { regiao: b.regiao, descricao: b.descricao, operador: b.operador });
+  }, log));
+
+  r.post('/checklists/avarias/:id/remover', (req, res) => responder(res, () =>
+    checklists.removerAvaria(db, req.params.id, { operador: corpo(req).operador }), log));
+
+  // Finalizar gera o PDF em segundo plano; a linha do tempo recebe o PDF quando ficar pronto.
+  r.post('/checklists/:id/finalizar', (req, res) => responder(res, () => {
+    const op = corpo(req).operador;
+    const out = checklists.finalizar(db, req.params.id, { operador: op });
+    broadcast('kanban');
+    if (!out.ja_finalizado) {
+      Promise.resolve()
+        .then(() => gerarPdfVistoria(out.execucao.id, 'Sistema'))
+        .then(() => broadcast('kanban'))
+        .catch((e) => log(`kanban: PDF da vistoria ${out.execucao.id} falhou: ${e.message}`));
+    }
+    return { ok: true, execucao_id: out.execucao.id, ja_finalizado: out.ja_finalizado };
+  }, log));
+
+  // "Exportar PDF": gera uma versão nova agora (as anteriores ficam guardadas).
+  r.post('/checklists/:id/pdf', (req, res) => responder(res, async () => {
+    const op = acoes.validarOperador(corpo(req).operador);
+    const out = await gerarPdfVistoria(Number(req.params.id), op);
+    broadcast('kanban');
     return { ok: true, ...out };
   }, log));
 
