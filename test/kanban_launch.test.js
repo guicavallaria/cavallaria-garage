@@ -304,3 +304,35 @@ test('Gmail: links fora dos servidores da Launch ou sem https são ignorados; re
   const g = new ClienteGmail({ env: ENV, fetchImpl: async (u) => ({ ok: true, status: 200, url: 'https://evil.example.com/r.pdf', headers: { get: () => null }, arrayBuffer: async () => PDF() }) });
   await assert.rejects(g.baixarLink('https://usglfile.dbscar.com/r/1.pdf'), /saiu do servidor da Launch/);
 });
+
+test('Gmail: limite de velocidade espera e tenta de novo; no máximo N e-mails por rodada; link vencido marca só aquele e-mail', async () => {
+  const { db } = banco();
+  const urlOk = 'https://usglfile.dbscar.com/ait_report/1/ok.pdf';
+  const urlVencido = 'https://usglfile.dbscar.com/ait_report/1/vencido.pdf';
+  const msgs = [
+    msgLink('v1', `Audi_${VIN}_AllSystemDTC_20261020080000.pdf`, urlVencido),
+    msgLink('o1', `BMW_${VIN}_AllSystemDTC_20261020090000.pdf`, urlOk),
+    msgLink('o2', `BMW_${VIN}_AllSystemDTC_20261020100000.pdf`, urlOk),
+  ];
+  const f = gmailFalso({ mensagens: msgs });
+  let limitou = false;
+  const fetchImpl = async (url, opts) => {
+    if (url === urlVencido) return { ok: false, status: 404, url, headers: { get: () => null }, arrayBuffer: async () => Buffer.alloc(0) };
+    if (url === urlOk) { const c = PDF(url); return { ok: true, status: 200, url, headers: { get: () => null }, arrayBuffer: async () => c }; }
+    if (!limitou && /\/messages\/o1\?/.test(url)) {
+      limitou = true;
+      return { ok: false, status: 403, json: async () => ({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }) };
+    }
+    return f.fetchImpl(url, opts);
+  };
+  const fonte = new ClienteGmail({ env: ENV, fetchImpl, porRodada: 2, esperaBaseMs: 1 });
+  const r1 = await sincronizarLaunch(db, storage, fonte, { log: () => {} });
+  assert.equal(r1.ok, true);
+  assert.equal(limitou, true);
+  assert.deepEqual(db.prepare('SELECT message_id, status FROM launch_emails ORDER BY message_id').all().map((e) => `${e.message_id}:${e.status}`).sort(), ['o1:ok', 'o2:ok'],
+    'a lista do Gmail vem do mais novo para o mais antigo: os 2 mais antigos (o2, o1) entram primeiro');
+  const r2 = await sincronizarLaunch(db, storage, fonte, { log: () => {} });
+  assert.equal(r2.ok, true);
+  assert.equal(db.prepare("SELECT status FROM launch_emails WHERE message_id = 'v1'").get().status, 'erro', 'link vencido não trava a fila');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM launch_emails').get().n, 3);
+});

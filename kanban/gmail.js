@@ -15,7 +15,10 @@ const BUSCA_PADRAO = '(from:cnlaunch.com OR from:dbscar.com OR (subject:launch h
 const HOSTS_LAUNCH = /(^|\.)(dbscar\.com|cnlaunch\.com|x431\.com)$/i;
 const MAX_LINK_BYTES = 31 * 1024 * 1024;
 
-class ErroGmail extends Error {}
+// permanente = não adianta tentar de novo (link vencido, fora da Launch, grande demais): marca só aquele e-mail
+class ErroGmail extends Error {
+  constructor(msg, { permanente = false } = {}) { super(msg); this.permanente = permanente; }
+}
 
 function configurado(env = process.env) {
   return Boolean(env.GMAIL_CLIENT_ID && env.GMAIL_CLIENT_SECRET && env.GMAIL_REFRESH_TOKEN);
@@ -60,13 +63,15 @@ function linksPdf(parte) {
 }
 
 class ClienteGmail {
-  constructor({ env = process.env, fetchImpl = globalThis.fetch, busca = env.LAUNCH_GMAIL_BUSCA || BUSCA_PADRAO } = {}) {
+  constructor({ env = process.env, fetchImpl = globalThis.fetch, busca = env.LAUNCH_GMAIL_BUSCA || BUSCA_PADRAO, porRodada = 40, esperaBaseMs = 2000 } = {}) {
     if (!configurado(env)) throw new ErroGmail('Gmail não configurado (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)');
     this.env = env;
     this.fetch = fetchImpl;
     this.busca = busca;
     this.token = null;
     this.expira = 0;
+    this.porRodada = porRodada;
+    this.esperaBaseMs = esperaBaseMs;
   }
 
   async acessoToken(forcar = false) {
@@ -89,10 +94,19 @@ class ClienteGmail {
     return this.token;
   }
 
-  async get(caminho, tentativa = 0) {
+  async get(caminho, tentativa = 0, limite = 0) {
     const r = await this.fetch(API + caminho, { headers: { Authorization: `Bearer ${await this.acessoToken(tentativa > 0)}` } });
-    if (r.status === 401 && tentativa === 0) return this.get(caminho, 1); // token venceu: renova uma vez
-    if (!r.ok) throw new ErroGmail(`Gmail respondeu ${r.status} em ${caminho.split('?')[0]}`);
+    if (r.status === 401 && tentativa === 0) return this.get(caminho, 1, limite); // token venceu: renova uma vez
+    if (!r.ok) {
+      const j = await (r.json ? r.json().catch(() => ({})) : {});
+      const motivos = ((j.error && j.error.errors) || []).map((e) => e.reason).join(',');
+      // limite de velocidade do Gmail (403 rateLimitExceeded/userRateLimitExceeded ou 429): espera e tenta de novo
+      if ((r.status === 429 || (r.status === 403 && /rate|limit|quota/i.test(motivos))) && limite < 4) {
+        await new Promise((ok) => setTimeout(ok, this.esperaBaseMs * 2 ** limite));
+        return this.get(caminho, tentativa, limite + 1);
+      }
+      throw new ErroGmail(`Gmail respondeu ${r.status}${motivos ? ` (${motivos})` : ''} em ${caminho.split('?')[0]}`);
+    }
     return r.json();
   }
 
@@ -141,19 +155,21 @@ class ClienteGmail {
   async baixarLink(link) {
     const r = await this.fetch(link, { redirect: 'follow' });
     const final = new URL(r.url || link);
-    if (final.protocol !== 'https:' || !HOSTS_LAUNCH.test(final.hostname)) throw new ErroGmail('link do relatório saiu do servidor da Launch');
-    if (!r.ok) throw new ErroGmail(`servidor da Launch respondeu ${r.status} ao baixar o relatório`);
-    if (Number(r.headers && r.headers.get && r.headers.get('content-length')) > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais');
+    if (final.protocol !== 'https:' || !HOSTS_LAUNCH.test(final.hostname)) throw new ErroGmail('link do relatório saiu do servidor da Launch', { permanente: true });
+    if (!r.ok) throw new ErroGmail(`servidor da Launch respondeu ${r.status} ao baixar o relatório`, { permanente: r.status >= 400 && r.status < 500 && r.status !== 429 });
+    if (Number(r.headers && r.headers.get && r.headers.get('content-length')) > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais', { permanente: true });
     const bytes = Buffer.from(await r.arrayBuffer());
-    if (bytes.length > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais');
+    if (bytes.length > MAX_LINK_BYTES) throw new ErroGmail('relatório grande demais', { permanente: true });
     return bytes;
   }
 
   // Mensagens ainda não processadas (o controle por message_id fica no banco).
-  async buscarNovas(jaProcessada) {
-    const ids = (await this.listarIds()).filter((id) => !jaProcessada(id));
+  // No máximo `porRodada` por vez (mais antigas primeiro): a caixa recebe ~300 relatórios por mês e
+  // abrir todos de uma vez estoura o limite do Gmail. O resto entra nas próximas rodadas (a cada 5 min).
+  async buscarNovas(jaProcessada, { porRodada = this.porRodada } = {}) {
+    const ids = (await this.listarIds()).filter((id) => !jaProcessada(id)).reverse().slice(0, porRodada);
     const out = [];
-    for (const id of ids.reverse()) out.push(await this.mensagem(id)); // mais antigas primeiro
+    for (const id of ids) out.push(await this.mensagem(id));
     return out;
   }
 }

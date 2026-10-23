@@ -83,7 +83,7 @@ async function sincronizarLaunch(db, storage, fonte, { origem = 'auto', log = co
           });
           if (!r.duplicado) { ok++; novos++; if (r.vinculado) vinculados++; }
         } catch (e) {
-          if (e instanceof ErroAcao) erroPermanente = `${a.nome}: ${e.message}`; else throw e;
+          if (e instanceof ErroAcao || e.permanente) erroPermanente = `${a.nome}: ${e.message}`; else throw e;
         }
       }
       regEmail.run(m.messageId, m.recebidoEm, m.assunto, m.remetente, new Date().toISOString(),
