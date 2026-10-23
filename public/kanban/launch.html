@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1f2330" />
+<title>Relatórios Launch — Cavallaria Garage</title>
+<link rel="manifest" href="/kanban/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<link rel="apple-touch-icon" href="/kanban/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kanban OS" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<link rel="stylesheet" href="/kanban/kanban.css" />
+<style>
+  .ln { max-width: 900px; margin: 0 auto; padding: 14px 16px 60px; }
+  .ln-estado { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .ln-lista { list-style: none; padding: 0; display: grid; gap: 10px; margin-top: 14px; }
+  .ln-item { background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+  .ln-item h3 { margin: 0; font-size: 16px; }
+  .ln-meta { font-size: 13px; color: var(--suave); }
+  .ln-busca { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ln-busca input { flex: 1 1 220px; font-size: 16px; padding: 8px 10px; border: 1px solid #c9ced8; border-radius: 8px; }
+  .ln-cards { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ln-cards button { border: 1px solid var(--linha); background: #f6f7f9; border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 14px; }
+  .ln-cards button.sug { background: #e3f3e6; border-color: #9ccfa6; }
+</style>
+</head>
+<body>
+  <header class="kb-topbar">
+    <a href="/kanban/" class="kb-voltar">← Kanban</a>
+    <h1>Relatórios Launch não vinculados</h1>
+    <div class="kb-acoes"><span class="kb-conta" data-conta></span></div>
+  </header>
+  <main class="ln">
+    <div class="ln-estado">
+      <span id="lnEstado">Carregando…</span>
+      <button type="button" id="lnSync" class="kb-botao kb-botao-sec">⟳ Buscar e-mails agora</button>
+    </div>
+    <p class="kb-dica">Relatórios que chegaram por e-mail e não acharam card pelo chassi. Ao vincular, o relatório vai para a linha do tempo do card.
+      Quando um card ganha o chassi de um destes relatórios, o vínculo acontece sozinho.</p>
+    <ul id="lnLista" class="ln-lista"></ul>
+  </main>
+  <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
+  <script src="/kanban/sessao.js"></script>
+  <script src="/kanban/launch.js"></script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#1f2330" />
+<title>Kanban de OS — Cavallaria Garage</title>
+<link rel="manifest" href="/kanban/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<link rel="apple-touch-icon" href="/kanban/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kanban OS" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<link rel="stylesheet" href="/kanban/kanban.css" />
+</head>
+<body>
+  <header class="kb-topbar">
+    <a href="/" class="kb-voltar kb-so-agenda" title="Voltar para a agenda">← Agenda</a>
+    <h1>Kanban de OS</h1>
+    <span id="kbFonte" class="kb-chip kb-chip-mock" hidden>Onmotor SIMULADO</span>
+    <div class="kb-acoes">
+      <button id="kbOperador" class="kb-btn kb-btn-operador" type="button" title="Trocar o operador deste aparelho">👤 <span id="kbOperadorNome">Quem é você?</span></button>
+      <a href="/kanban/launch.html" id="kbLinkLaunch" class="kb-btn kb-so-gestor" style="text-decoration:none">🔬 Launch</a>
+      <a href="/kanban/admin.html" class="kb-btn kb-so-pc kb-so-admin" title="Usuários, mecânicos, modelos de checklist e auditoria" style="text-decoration:none">⚙️ Administração</a>
+      <span id="kbUltimaSync" class="kb-ultima"></span>
+      <button id="kbSync" class="kb-btn" type="button">⟳ Sincronizar</button>
+      <span class="kb-conta" data-conta></span>
+    </div>
+  </header>
+
+  <div id="kbBanner" class="kb-banner" role="alert" hidden></div>
+
+  <div class="kb-ferramentas">
+    <div class="kb-busca">
+      <input id="kbBusca" type="search" placeholder="🔍 OS, placa, modelo, cliente ou chassi" autocomplete="off" aria-label="Buscar" />
+      <div class="kb-modo" role="tablist" aria-label="O que buscar">
+        <button type="button" class="kb-modo-btn" role="tab" data-modo="ativos" aria-selected="true">Ativos</button>
+        <button type="button" class="kb-modo-btn" role="tab" data-modo="arquivados" aria-selected="false">Arquivados</button>
+      </div>
+    </div>
+    <div class="kb-filtros">
+      <label>Mecânico
+        <select id="kbFiltroMecanico"><option value="">Todos</option></select>
+      </label>
+      <label class="kb-so-pc">Fase
+        <select id="kbFiltroFase"><option value="">Todas</option></select>
+      </label>
+    </div>
+  </div>
+
+  <nav id="kbAbas" class="kb-abas" aria-label="Fases"></nav>
+
+  <main id="kbQuadro" class="kb-quadro" aria-live="polite">
+    <p class="kb-carregando">Carregando…</p>
+  </main>
+  <section id="kbResultados" class="kb-resultados" hidden aria-live="polite"></section>
+
+  <aside id="kbPainel" class="kb-painel" hidden aria-modal="true" role="dialog" aria-labelledby="kbPainelTitulo">
+    <div class="kb-painel-topo">
+      <button id="kbFechar" class="kb-btn-fechar" type="button" aria-label="Fechar">✕</button>
+      <h2 id="kbPainelTitulo"></h2>
+    </div>
+    <div id="kbPainelCorpo" class="kb-painel-corpo"></div>
+  </aside>
+  <div id="kbVeu" class="kb-veu" hidden></div>
+
+  <div id="kbModalOperador" class="kb-modal" hidden role="dialog" aria-modal="true" aria-labelledby="kbModalOperadorTitulo">
+    <form id="kbFormOperador" class="kb-modal-caixa">
+      <h2 id="kbModalOperadorTitulo">Quem está usando este aparelho?</h2>
+      <p class="kb-modal-dica">O nome fica gravado em cada registro e é lembrado neste aparelho até ser trocado.</p>
+      <div id="kbListaOperadores" class="kb-lista-operadores"></div>
+      <label class="kb-campo">Outro nome
+        <input id="kbOperadorLivre" type="text" maxlength="60" autocomplete="name" />
+      </label>
+      <div class="kb-modal-acoes">
+        <button type="button" id="kbOperadorCancelar" class="kb-botao kb-botao-sec">Cancelar</button>
+        <button type="submit" class="kb-botao">Confirmar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
+  <div id="kbFila" class="kb-fila" role="status" hidden></div>
+
+  <div id="kbVisor" class="kb-visor" hidden role="dialog" aria-label="Foto ampliada">
+    <img id="kbFotoGrande" alt="Foto ampliada" />
+    <span class="kb-visor-fechar">Toque para fechar</span>
+  </div>
+
+  <!-- Câmera e arquivos: o botão do painel abre a entrada certa. -->
+  <input id="kbInFoto" type="file" accept="image/*" capture="environment" hidden />
+  <input id="kbInVideo" type="file" accept="video/*" capture="environment" hidden />
+  <input id="kbInAudio" type="file" accept="audio/*" hidden />
+  <input id="kbInGaleria" type="file" accept="image/*,video/*" multiple hidden />
+
+  <!-- Checklist guiado (vistoria de entrada): tela cheia, acima do painel do card. -->
+  <div id="kbChk" class="kb-chk" hidden role="dialog" aria-modal="true" aria-labelledby="kbChkTitulo">
+    <div class="kb-chk-topo">
+      <button type="button" class="kb-btn-fechar" data-acao="chk-sair" aria-label="Sair (o que foi feito fica salvo)" title="Sair: o que foi feito fica salvo">✕</button>
+      <h2 id="kbChkTitulo"></h2>
+    </div>
+    <div id="kbChkProgresso" class="kb-barra kb-chk-barra"></div>
+    <div id="kbChkCorpo" class="kb-chk-corpo"></div>
+    <div id="kbChkNav" class="kb-chk-nav"></div>
+  </div>
+  <input id="kbInChk" type="file" accept="image/*" capture="environment" hidden />
+  <input id="kbInLaunch" type="file" accept="application/pdf,.pdf" hidden />
+  <input id="kbInChkVideo" type="file" accept="video/*" capture="environment" hidden />
+
+  <script src="/kanban/sessao.js"></script>
+  <script src="/kanban/midia.js"></script>
+  <script src="/kanban/kanban.js"></script>
+  <script src="/kanban/checklist.js"></script>
+</body>
+</html>

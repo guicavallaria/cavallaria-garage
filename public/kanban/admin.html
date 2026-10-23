@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1f2330" />
+<title>Administração do kanban — Cavallaria Garage</title>
+<link rel="manifest" href="/kanban/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<link rel="apple-touch-icon" href="/kanban/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kanban OS" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<link rel="stylesheet" href="/kanban/kanban.css" />
+<style>
+  .adm { max-width: 980px; margin: 0 auto; padding: 14px 16px 60px; }
+  .adm-topo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .adm-topo select { font-size: 16px; padding: 8px; border-radius: 8px; border: 1px solid #c9ced8; }
+  .adm-aviso { background: var(--aviso-fundo); color: var(--aviso); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin: 10px 0; }
+  .adm-versoes { font-size: 13px; color: var(--suave); margin: 6px 0 14px; }
+  .adm-versoes button { font-size: 12px; margin-left: 6px; }
+  .adm-secao { border: 1px solid var(--linha); border-radius: 10px; padding: 10px; margin: 12px 0; background: #fff; }
+  .adm-secao-topo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .adm-secao-topo input { flex: 1 1 240px; font-size: 16px; font-weight: 700; padding: 6px 8px; border: 1px solid #c9ced8; border-radius: 6px; }
+  .adm-item { display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; border-top: 1px solid var(--linha); padding: 8px 0; }
+  .adm-item .n { color: var(--suave); padding-top: 8px; text-align: right; }
+  .adm-campos { display: grid; gap: 6px; }
+  .adm-campos input, .adm-campos textarea { width: 100%; font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #c9ced8; border-radius: 6px; }
+  .adm-campos textarea.json { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .adm-botoes { display: flex; flex-direction: column; gap: 4px; }
+  .adm-botoes button, .adm-mini { border: 1px solid var(--linha); background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 13px; }
+  .adm-ajuda { font-size: 12.5px; color: var(--suave); background: #f6f7f9; border-radius: 8px; padding: 10px 12px; }
+  .adm-ajuda code { font-size: 12px; }
+  .adm-mec { background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: 10px 14px 14px; margin-bottom: 18px; }
+  .adm-mec-lista { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+  .adm-mec-lista li { display: flex; align-items: center; gap: 10px; border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; }
+  .adm-mec-lista li strong { flex: 1; font-size: 16px; }
+  .adm-mec-lista small { color: var(--suave); }
+  .adm-mec-form { display: flex; gap: 8px; }
+  .adm-mec-form input { flex: 1; font-size: 16px; padding: 8px 10px; border: 1px solid #c9ced8; border-radius: 8px; }
+  .adm-rodape { position: sticky; bottom: 0; background: var(--fundo); padding: 10px 0; display: flex; gap: 10px; align-items: center; }
+</style>
+</head>
+<body>
+  <header class="kb-topbar">
+    <a href="/kanban/" class="kb-voltar">← Kanban</a>
+    <h1>Administração</h1>
+    <div class="kb-acoes"><span class="kb-conta" data-conta></span></div>
+  </header>
+  <main class="adm">
+    <section class="adm-mec" aria-labelledby="admMecTitulo">
+      <h2 id="admMecTitulo" class="kb-sec">Mecânicos</h2>
+      <p class="kb-dica">Lista usada no kanban: mecânico responsável do card, filtro por mecânico e nomes nos checklists. A agenda e o painel de pátio têm o cadastro próprio, que não muda aqui.</p>
+      <ul id="admMecLista" class="adm-mec-lista"></ul>
+      <form id="admMecForm" class="adm-mec-form">
+        <input id="admMecNome" type="text" maxlength="60" placeholder="Nome do mecânico" aria-label="Nome do mecânico">
+        <button type="submit" class="kb-botao">+ Adicionar</button>
+      </form>
+      <details class="adm-ajuda"><summary>Mecânicos removidos</summary><ul id="admMecRemovidos"></ul></details>
+    </section>
+    <h2 class="kb-sec">Modelos de checklist</h2>
+    <div class="adm-topo">
+      <label>Checklist <select id="admModelo"></select></label>
+    </div>
+    <div id="admVersoes" class="adm-versoes"></div>
+    <p class="adm-aviso">Salvar cria uma <strong>versão nova</strong> do checklist. Os checklists já feitos continuam com a versão em que foram feitos.
+      Na vistoria de entrada, mantenha os códigos <code>e_combustivel</code> e <code>e_itens_presentes</code> e a medida <code>KM</code>: o PDF usa esses campos.</p>
+    <details class="adm-ajuda"><summary>Como escrever os componentes de resposta</summary><div id="admAjuda"></div></details>
+    <div id="admForm"></div>
+    <div class="adm-rodape">
+      <button type="button" class="kb-botao" id="admSalvar">Salvar como nova versão</button>
+      <span id="admMsg" class="kb-dica"></span>
+    </div>
+  </main>
+  <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
+  <script src="/kanban/sessao.js"></script>
+  <script src="/kanban/admin-acesso.js"></script>
+  <script src="/kanban/admin.js"></script>
+</body>
+</html>

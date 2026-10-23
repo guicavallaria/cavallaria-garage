@@ -10,36 +10,63 @@ const patioRoutes = require('./patio/routes');
 const { reconciliarAgendaHoje } = require('./patio/agenda');
 const { sincronizar: sincronizarPatio } = require('./patio/sync');
 const { criarScheduler } = require('./patio/scheduler');
+const kanbanRoutes = require('./kanban/routes');
+const { sincronizarKanban, JANELA_KANBAN } = require('./kanban/sync');
+const kanbanFonte = require('./kanban/fonte');
+const kanbanStorage = require('./kanban/storage').criarStorage();
+if (!kanbanStorage.configurado) console.log('kanban: armazenamento de mídia desligado — ' + kanbanStorage.motivo);
+const KANBAN_INTERVALO_MIN = Number(process.env.KANBAN_SYNC_INTERVAL_MIN) || 2;
+
+const acesso = require('./acesso/rotas');
+const { StoreSqlite } = require('./acesso/sessoes');
+
+// Produção = Railway (ou NODE_ENV=production): HTTPS obrigatório e cookie só em HTTPS.
+const PRODUCAO = process.env.NODE_ENV === 'production' || Boolean(process.env.RAILWAY_ENVIRONMENT);
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // Railway fica atrás de um proxy: IP real e HTTPS vêm dos X-Forwarded-*
+
+// ---------- Segurança ----------
+app.use((req, res, next) => {
+  // HTTP → HTTPS (só quando o proxy informa o protocolo; o healthcheck interno segue livre)
+  if (PRODUCAO && req.get('x-forwarded-proto') === 'http') return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=()',
+  });
+  if (PRODUCAO) res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
 app.use(express.json());
 
-// ---------- Auth ----------
+// ---------- Login individual (perfis: acesso/perfis.js) ----------
+// SESSION_SECRET curto ou ausente: usa um segredo aleatório gerado uma vez e guardado no
+// próprio banco (volume), para os deploys não deslogarem ninguém.
+let segredoSessao = process.env.SESSION_SECRET;
+if (!segredoSessao || segredoSessao.length < 32) {
+  const salvo = db.prepare("SELECT valor FROM config WHERE chave = 'session_secret'").get();
+  if (salvo && salvo.valor && salvo.valor.length >= 64) {
+    segredoSessao = salvo.valor;
+  } else {
+    segredoSessao = require('crypto').randomBytes(48).toString('hex');
+    db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('session_secret', ?)").run(segredoSessao);
+    console.log('sessão: SESSION_SECRET curto ou ausente — segredo forte gerado e guardado no banco');
+  }
+}
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'cavallaria-local-secret',
+  name: 'cavallaria.sid',
+  secret: segredoSessao,
+  store: new StoreSqlite(db), // sessões no SQLite: deploy não desloga ninguém
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 12 * 60 * 60 * 1000 }, // 12 hours
+  rolling: true, // 12 h sem usar o app → sai
+  cookie: { maxAge: 12 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: PRODUCAO ? 'auto' : false },
 }));
 
-app.get('/login', (req, res) => {
-  if (req.session.autenticado) return res.redirect('/');
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-
-app.post('/login', (req, res) => {
-  const senha = process.env.APP_PASSWORD || 'cavallaria2026';
-  if (req.body.senha === senha) {
-    req.session.autenticado = true;
-    res.json({ ok: true });
-  } else {
-    res.status(401).json({ erro: 'Senha incorreta' });
-  }
-});
-
-app.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
-});
+app.use(acesso.criarAcesso({ db, producao: PRODUCAO, publicDir: path.join(__dirname, 'public') }).router);
 
 // ---------- Pós-vendas: upload dos relatórios (push do PC) ----------
 // Fica ANTES do auth de sessão porque é chamado por um script (sem cookie do
@@ -60,17 +87,35 @@ app.post('/api/posvendas/upload', express.text({ limit: '30mb', type: '*/*' }), 
   }
 });
 
-app.use((req, res, next) => {
-  if (req.session.autenticado) return next();
-  if (req.path.startsWith('/api/')) return res.status(401).json({ erro: 'Não autenticado' });
-  res.redirect('/login');
-});
+// ---------- Kanban: links públicos com validade (vídeo do QR no PDF, PDF para o cliente) ----------
+// Fica ANTES do login: quem abre é o cliente. O app confere validade/revogação e redireciona
+// para uma URL assinada de 15 min do bucket.
+app.get('/m/:token', require('./kanban/links').rotaPublica({ db, storage: kanbanStorage }));
+
+// Arquivos públicos, sem dado nenhum: logo e ícones (tela de login) e o manifest/service worker
+// do PWA (o navegador busca o manifest sem cookie).
+const kanbanPublico = path.join(__dirname, 'public', 'kanban');
+app.use('/kanban/icons', express.static(path.join(kanbanPublico, 'icons'), { maxAge: '7d' }));
+app.use('/kanban/img', express.static(path.join(kanbanPublico, 'img'), { maxAge: '7d' }));
+app.get('/kanban/manifest.webmanifest', (req, res) => res.sendFile(path.join(kanbanPublico, 'manifest.webmanifest')));
+app.get('/kanban/sw.js', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(kanbanPublico, 'sw.js')));
+
+// Porteiro: login, troca de senha obrigatória e área de cada perfil (mecânico → só kanban).
+app.use(acesso.porteiro({ db }));
+app.use('/api/acesso', acesso.rotasConta({ db }));
 
 // Static files served only after auth check
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Painel de pátio (veículos em execução, lidos do Onmotor) ----------
 app.use('/api/patio', patioRoutes.criarRouter({ db, broadcast, log: console.log }));
+
+// ---------- Kanban de OS (cards criados a partir da Novidades do Onmotor) ----------
+app.use('/api/kanban', kanbanRoutes.criarRouter({
+  db, broadcast, log: console.log, criarCliente: kanbanFonte.criarCliente, intervaloMin: KANBAN_INTERVALO_MIN,
+  storage: kanbanStorage,
+}));
+// A página fica em public/kanban/index.html (servida pelo static em /kanban/).
 
 // ---------- Pós-vendas: leitura (protegida pela MESMA sessão do agendamento) ----------
 // Só dados não-financeiros saem daqui (a sanitização é feita no módulo posvendas).
@@ -230,7 +275,7 @@ app.delete('/api/mecanicos/:id', (req, res) => {
 
 // ---------- Config ----------
 app.get('/api/config', (req, res) => {
-  const rows = db.prepare('SELECT * FROM config').all();
+  const rows = db.prepare("SELECT * FROM config WHERE chave <> 'session_secret'").all(); // segredo nunca sai
   const config = {};
   for (const r of rows) config[r.chave] = r.valor;
   res.json(config);
@@ -240,7 +285,7 @@ app.put('/api/config', (req, res) => {
   const upsert = db.prepare(
     'INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor'
   );
-  for (const [chave, valor] of Object.entries(req.body)) upsert.run(chave, String(valor));
+  for (const [chave, valor] of Object.entries(req.body)) if (chave !== 'session_secret') upsert.run(chave, String(valor));
   res.json({ ok: true });
 });
 
@@ -835,5 +880,47 @@ if (process.env.PATIO_SYNC_ENABLED !== 'false') {
     console.log('patio: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
   } else {
     criarScheduler({ db, sincronizar: (o) => sincronizarPatio(db, { ...o, broadcast }) }).iniciar();
+  }
+}
+
+// ---------- Kanban de OS: relatórios Launch do Gmail (a cada 5 min, todos os dias) ----------
+// LAUNCH_FONTE=mock lê PDFs de KANBAN_LAUNCH_MOCK_DIR (desenvolvimento); sem GMAIL_* fica desligado.
+{
+  const launchFonte = require('./kanban/launch-fonte');
+  const modoLaunch = launchFonte.modo();
+  if (modoLaunch === 'desligado') {
+    console.log('launch: leitura do Gmail desligada (faltam GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN)');
+  } else {
+    console.log(`launch: fonte dos relatórios = ${modoLaunch}`);
+    criarScheduler({
+      db,
+      rotulo: 'launch',
+      tabelaLock: 'kb_launch_lock',
+      intervaloMin: Number(process.env.LAUNCH_INTERVAL_MIN) || 5,
+      tickMs: 30_000,
+      folgaMs: 30_000,
+      janela: { diasSemana: [0, 1, 2, 3, 4, 5, 6], inicioMin: 0, fimMin: 24 * 60 },
+      sincronizar: (o) => launchFonte.sincronizarLaunch(db, kanbanStorage, launchFonte.criarFonte(), { ...o, broadcast }),
+    }).iniciar();
+  }
+}
+
+// ---------- Kanban de OS: sincronização automática (seg–sex 07:00–19:00, a cada 2 min) ----------
+// Desligue com KANBAN_SYNC_ENABLED=false. KANBAN_FONTE=mock usa o Onmotor simulado (desenvolvimento).
+if (process.env.KANBAN_SYNC_ENABLED !== 'false') {
+  if (!kanbanFonte.fonteConfigurada()) {
+    console.log('kanban: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
+  } else {
+    console.log(`kanban: fonte do Onmotor = ${kanbanFonte.modoFonte()}`);
+    criarScheduler({
+      db,
+      rotulo: 'kanban',
+      tabelaLock: 'kb_sync_lock',
+      intervaloMin: KANBAN_INTERVALO_MIN,
+      tickMs: 10_000,
+      folgaMs: 10_000, // rodadas a cada 110–120 s: OS nova vira card em até 2 min
+      janela: JANELA_KANBAN,
+      sincronizar: (o) => sincronizarKanban(db, { ...o, client: kanbanFonte.criarCliente({ log: console.log }), broadcast }),
+    }).iniciar();
   }
 }

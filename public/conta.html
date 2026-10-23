@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1f2330" />
+<title>Minha conta — Cavallaria Garage</title>
+<link rel="icon" type="image/png" href="/kanban/icons/favicon-48.png" />
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: #1f2330; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.card { background: #fff; border-radius: 12px; padding: 30px 28px; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+h1 { font-size: 19px; color: #1f2330; margin-bottom: 4px; }
+.quem { font-size: 13.5px; color: #666; margin-bottom: 18px; }
+.aviso { background: #fff8e1; border: 1px solid #f0d27a; border-radius: 8px; padding: 10px 12px; font-size: 13.5px; color: #5f4b00; margin-bottom: 14px; }
+label { display: block; font-size: 12.5px; font-weight: 600; color: #555; margin-bottom: 12px; }
+input { width: 100%; margin-top: 4px; padding: 11px 12px; border: 1px solid #d6d8e0; border-radius: 6px; font-size: 16px; outline: none; }
+input:focus { border-color: #185FA5; }
+button { width: 100%; padding: 12px; background: #185FA5; color: #fff; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 6px; }
+button:disabled { background: #aaa; }
+.sec { background: #fff; color: #185FA5; border: 1px solid #185FA5; }
+.erro { color: #c0392b; font-size: 13.5px; text-align: center; margin-top: 12px; min-height: 20px; }
+.ok { color: #1e7d45; }
+.dica { font-size: 12.5px; color: #888; margin: -4px 0 12px; }
+a { color: #185FA5; font-size: 14px; }
+.rodape { display: flex; justify-content: space-between; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Minha conta</h1>
+  <p class="quem" id="quem">…</p>
+  <p class="aviso" id="avisoPrimeiro" hidden>Primeiro acesso: crie a sua senha pessoal para continuar.</p>
+  <form id="formSenha">
+    <label>Senha atual (ou a provisória que recebeu)
+      <input type="password" id="atual" autocomplete="current-password" required />
+    </label>
+    <label>Nova senha
+      <input type="password" id="nova" autocomplete="new-password" minlength="8" required />
+    </label>
+    <p class="dica">Pelo menos 8 caracteres, sem o seu nome de usuário.</p>
+    <label>Repita a nova senha
+      <input type="password" id="nova2" autocomplete="new-password" minlength="8" required />
+    </label>
+    <button type="submit" id="btnSalvar">Salvar nova senha</button>
+    <div class="erro" id="msg" role="alert"></div>
+  </form>
+  <div class="rodape">
+    <a href="/" id="lnkVoltar">← Voltar</a>
+    <a href="#" id="lnkSair">Sair</a>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const primeiro = new URLSearchParams(location.search).has('primeiro');
+let destino = '/';
+fetch('/api/acesso/me').then((r) => {
+  if (r.status === 401) { location.href = '/login'; return null; }
+  return r.json();
+}).then((s) => {
+  if (!s) return;
+  const u = s.usuario;
+  $('quem').textContent = `${u.nome} · usuário ${u.login}`;
+  destino = s.permissoes && s.permissoes.agenda ? '/' : '/kanban/';
+  $('lnkVoltar').href = destino;
+  const obrigatorio = u.trocar_senha || primeiro;
+  $('avisoPrimeiro').hidden = !obrigatorio;
+  $('lnkVoltar').hidden = Boolean(u.trocar_senha);
+  if (u.inicial) {
+    $('formSenha').innerHTML = '<p class="aviso">Este é o acesso inicial (senha antiga do app). Ele não tem senha própria: crie os usuários na Administração.</p><button type="button" onclick="location.href=\'/kanban/admin.html#usuarios\'">Ir para Usuários</button>';
+  }
+}).catch(() => null);
+
+$('lnkSair').addEventListener('click', async (ev) => {
+  ev.preventDefault();
+  try { await fetch('/logout', { method: 'POST' }); } catch (_) { /* sai mesmo assim */ }
+  location.href = '/login';
+});
+
+$('formSenha').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('msg');
+  msg.className = 'erro';
+  if ($('nova').value !== $('nova2').value) { msg.textContent = 'As duas senhas novas não são iguais.'; return; }
+  $('btnSalvar').disabled = true;
+  try {
+    const r = await fetch('/api/acesso/senha', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ atual: $('atual').value, nova: $('nova').value }),
+    });
+    const corpo = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(corpo.erro || 'Não foi possível trocar a senha');
+    msg.className = 'erro ok';
+    msg.textContent = 'Senha trocada. Entrando…';
+    setTimeout(() => { location.href = corpo.destino || destino; }, 800);
+  } catch (e) {
+    msg.textContent = e.message;
+    $('btnSalvar').disabled = false;
+  }
+});
+</script>
+</body>
+</html>
