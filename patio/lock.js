@@ -4,7 +4,7 @@
 //
 // Cada job tem sua tabela de lock (uma linha, id = 1). O nome da tabela não
 // vem de entrada do usuário, mas mesmo assim só aceita os nomes conhecidos.
-const TABELAS = new Set(['patio_sync_lock', 'kb_sync_lock']);
+const TABELAS = new Set(['patio_sync_lock', 'kb_sync_lock', 'kb_launch_lock']);
 
 function tabelaValida(tabela) {
   if (!TABELAS.has(tabela)) throw new Error(`tabela de lock desconhecida: ${tabela}`);

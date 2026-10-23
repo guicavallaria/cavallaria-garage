@@ -10,6 +10,8 @@ const linhaTempo = require('./linha-tempo');
 const checklists = require('./checklists');
 const pdfs = require('./pdf');
 const links = require('./links');
+const launch = require('./launch');
+const launchFonte = require('./launch-fonte');
 
 const primeiroNome = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
@@ -22,7 +24,8 @@ const SQL_CARDS = `
          COALESCE(kc.nome, kp.nome) AS mecanico_nome,
          (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL AND md.tipo <> 'pdf') AS qtd_midias,
          (SELECT x.status FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
-            WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status
+            WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status,
+         (SELECT COUNT(*) FROM launch_relatorios lr WHERE lr.card_id = c.id AND lr.removido_em IS NULL) AS qtd_launch
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -51,6 +54,7 @@ function resumoCard(c) {
     arquivado_por: c.arquivado_por,
     qtd_midias: c.qtd_midias || 0,
     vistoria_status: c.vistoria_status || null, // null | em_andamento | finalizado
+    qtd_launch: c.qtd_launch || 0,
   };
 }
 
@@ -92,6 +96,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       cards,
       mecanicos,
       sync: estadoSyncKanban(db, { intervaloMin }),
+      launch: launchFonte.estadoLaunch(db),
     });
   });
 
@@ -247,6 +252,55 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     broadcast('kanban');
     return out;
   }, log));
+
+  // ---------- Etapa 6: relatórios Launch ----------
+  r.get('/cards/:id/launch', (req, res) => responder(res, () => launch.listarDoCard(db, storage, req.params.id), log));
+
+  r.get('/launch/nao-vinculados', (req, res) => responder(res, async () => ({
+    estado: launchFonte.estadoLaunch(db), relatorios: await launch.listarNaoVinculados(db, storage),
+  }), log));
+
+  // Vincular/desvincular à mão: Gerência (Etapa 7 restringe pelo login).
+  r.post('/launch/:id/vincular', (req, res) => responder(res, () => {
+    exigirGerencia(req);
+    const out = launch.vincularManual(db, req.params.id, corpo(req).card_id, { operador: corpo(req).operador });
+    broadcast('kanban');
+    return out;
+  }, log));
+  r.post('/launch/:id/desvincular', (req, res) => responder(res, () => {
+    exigirGerencia(req);
+    const out = launch.desvincular(db, req.params.id, { operador: corpo(req).operador });
+    broadcast('kanban');
+    return out;
+  }, log));
+
+  // Envio manual de um PDF de escaneamento pelo card. O arquivo passa pela memória do
+  // servidor direto para o bucket (nada em disco).
+  r.post('/cards/:id/launch', express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '31mb' }), (req, res) => responder(res, async () => {
+    const op = acoes.validarOperador(req.query.operador);
+    const card = db.prepare('SELECT id, arquivado_em FROM kb_cards WHERE id = ?').get(Number(req.params.id));
+    if (!card) throw new acoes.ErroAcao(404, 'Card não encontrado');
+    if (card.arquivado_em) throw new acoes.ErroAcao(409, 'Card arquivado: desarquive para anexar');
+    const out = await launch.importarRelatorio(db, storage, {
+      origem: 'manual', nomeArquivo: String(req.query.nome || 'escaneamento.pdf'), bytes: Buffer.isBuffer(req.body) ? req.body : null,
+      operador: op, cardId: card.id,
+    });
+    broadcast('kanban');
+    return { ok: true, relatorio_id: out.relatorio.id };
+  }, log));
+
+  // "Buscar e-mails agora"
+  r.post('/launch/sync', async (req, res) => {
+    const fonte = launchFonte.criarFonte();
+    if (!fonte) return res.status(503).json({ erro: 'Leitura do Gmail do Launch não configurada' });
+    if (!adquirirLock(db, 'manual', 600, Date.now(), 'kb_launch_lock')) return res.status(409).json({ erro: 'Já existe uma leitura em andamento' });
+    try {
+      const out = await launchFonte.sincronizarLaunch(db, storage, fonte, { origem: 'manual', log, broadcast });
+      res.status(out.ok ? 200 : 502).json(out);
+    } finally {
+      liberarLock(db, 'manual', 'kb_launch_lock');
+    }
+  });
 
   const modelos = require('./modelos');
   r.get('/admin/modelos', (req, res) => responder(res, () => ({

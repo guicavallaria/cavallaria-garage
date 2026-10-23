@@ -248,6 +248,10 @@ async function enriquecerDetalhes(db, client, { agora, limite = LIMITE_DETALHES,
         WHERE id = ?`).run(veiculo.fabricante, veiculo.modelo, ano, veiculo.chassi, veiculoId,
         JSON.stringify({ ...detalhes, chassi_informado: veiculo.chassi ? undefined : chassiInformado || null }), agora, card.id);
       ok++;
+      // Card ganhou chassi: relatórios Launch que esperavam por ele entram agora (Etapa 6).
+      if (veiculo.chassi) {
+        try { require('./launch').vincularPendentes(db, card.id, { agora }); } catch (e) { avisos.push(`OS ${card.os_numero}: vínculo do Launch falhou (${e.message})`); }
+      }
     } catch (e) {
       db.prepare('UPDATE kb_cards SET detalhes_tentativas = detalhes_tentativas + 1, detalhes_erro = ? WHERE id = ?')
         .run(e.message, card.id);

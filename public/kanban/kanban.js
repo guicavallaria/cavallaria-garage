@@ -133,6 +133,7 @@
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
+        ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
         ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
@@ -180,6 +181,9 @@
   function renderSync() {
     const s = estado.sync;
     $('kbFonte').hidden = estado.fonte !== 'mock';
+    const nv = estado.launch ? estado.launch.nao_vinculados : 0;
+    $('kbLinkLaunch').innerHTML = `🔬 Launch${nv ? ` <span class="kb-badge">${nv}</span>` : ''}`;
+    $('kbLinkLaunch').title = nv ? `${nv} relatório(s) Launch sem card` : 'Relatórios Launch';
     $('kbUltimaSync').textContent = s.ultima_ok_em ? `Lido às ${horaBR(s.ultima_ok_em)}` : '';
     $('kbUltimaSync').title = 'Última leitura do Onmotor';
     const b = $('kbBanner');
@@ -344,6 +348,7 @@
     $('kbPainelCorpo').innerHTML = `
       <div id="kbCabecalho"></div>
       <div id="kbChecklists"></div>
+      <div id="kbLaunch"></div>
       <div id="kbCompositor"></div>
       <h3 class="kb-sec">Linha do tempo</h3>
       <ul id="kbPendentes" class="kb-pendentes"></ul>
@@ -356,6 +361,53 @@
   }
 
   // ---------- checklists do card (Etapa 4: vistoria de entrada) ----------
+  // ---------- relatórios Launch do card (Etapa 6) ----------
+  async function carregarLaunch() {
+    if (!cardAberto) return;
+    const id = cardAberto.id;
+    try {
+      const lista = await api(`/api/kanban/cards/${id}/launch`);
+      if (!cardAberto || cardAberto.id !== id) return;
+      cardAberto.launch = lista;
+      renderLaunch();
+    } catch (_) { /* o painel funciona sem a lista */ }
+  }
+
+  function renderLaunch() {
+    const el = $('kbLaunch');
+    if (!el || !cardAberto || !cardAberto.launch) return;
+    const c = cardAberto.card;
+    const lista = cardAberto.launch;
+    el.innerHTML = `<div class="kb-launch">
+        <div class="kb-chk-linha"><span>🔬 <strong>Relatórios Launch</strong> <small>${lista.length ? `${lista.length} relatório(s)` : 'nenhum ainda'}${c.chassi ? ` · chassi ${esc(c.chassi)}` : ' · card ainda sem chassi'}</small></span>
+          ${c.arquivado_em ? '' : '<button type="button" class="kb-botao kb-botao-sec" data-acao="launch-anexar">Anexar PDF</button>'}</div>
+        ${lista.length ? `<ul class="kb-launch-lista">${lista.map((r) => `<li>
+            <a href="${esc(r.url)}" target="_blank" rel="noopener">📄 ${r.principal ? '<strong>Principal</strong>' : 'Adicional'} · ${dataBR(r.relatorio_em)}</a>
+            <small>${esc(r.marca || '')} ${r.origem === 'manual' ? `· enviado por ${esc(r.vinculado_por || '')}` : (r.vinculado_por && r.vinculado_por !== 'automático' ? `· vinculado por ${esc(r.vinculado_por)}` : '· do e-mail')}</small>
+            ${c.arquivado_em ? '' : `<button type="button" class="kb-link-pequeno" data-acao="launch-desvincular" data-id="${r.id}">desvincular</button>`}
+          </li>`).join('')}</ul>` : ''}
+      </div>`;
+  }
+
+  async function enviarLaunch(arquivo) {
+    if (!arquivo || !cardAberto) return;
+    if (!/\.pdf$/i.test(arquivo.name) && arquivo.type !== 'application/pdf') { avisar('Escolha um arquivo PDF', true); return; }
+    const op = await garantirOperador();
+    if (!op) return;
+    const id = cardAberto.id;
+    avisar('Enviando relatório…');
+    try {
+      const r = await fetch(`/api/kanban/cards/${id}/launch?operador=${encodeURIComponent(op)}&nome=${encodeURIComponent(arquivo.name)}`, {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/pdf' }, body: arquivo,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.erro || `erro ${r.status}`);
+      avisar('Relatório Launch anexado');
+      abrirCard(id);
+      carregar();
+    } catch (e) { avisar(e.message, true); }
+  }
+
   async function carregarChecklists() {
     if (!cardAberto) return;
     const id = cardAberto.id;
@@ -365,6 +417,7 @@
       cardAberto.checklists = lista;
       renderChecklists();
     } catch (_) { /* o painel funciona sem a lista */ }
+    carregarLaunch();
   }
 
   function renderChecklists() {
@@ -586,7 +639,7 @@
 
   // ---------- linha do tempo ----------
   const ICONE = {
-    criado: '🆕', fase: '➡️', checklist_iniciado: '📋', checklist_finalizado: '✅', checklist_editado: '✏️', pdf: '📄', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
+    criado: '🆕', fase: '➡️', launch: '🔬', checklist_iniciado: '📋', checklist_finalizado: '✅', checklist_editado: '✏️', pdf: '📄', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
     texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️',
   };
 
@@ -700,6 +753,14 @@
       case 'confirmar-arquivar': b.disabled = true; await arquivar(c.id); break;
       case 'desarquivar': b.disabled = true; await desarquivar(c.id); break;
 
+      case 'launch-anexar': $('kbInLaunch').click(); break;
+      case 'launch-desvincular': {
+        if (!b.dataset.confirmar) { b.dataset.confirmar = '1'; b.textContent = 'confirmar desvínculo?'; break; }
+        const op = await garantirOperador();
+        if (!op) break;
+        try { await api(`/api/kanban/launch/${b.dataset.id}/desvincular`, { json: { operador: op } }); avisar('Relatório desvinculado'); abrirCard(c.id); carregar(); } catch (e) { avisar(e.message, true); }
+        break;
+      }
       case 'abrir-checklist': window.KanbanChecklist.abrir(c.id, b.dataset.codigo, { execId: b.dataset.exec ? Number(b.dataset.exec) : null }); break;
       case 'reg-texto': cardAberto.compositor = { tipo: 'texto', texto: '' }; renderCompositor(); break;
       case 'reg-foto': $('kbInFoto').click(); break;
@@ -784,6 +845,13 @@
       arquivosEscolhidos(arquivos, tipo);
     });
   }
+
+  // PDF de escaneamento Launch enviado à mão pelo card
+  $('kbInLaunch').addEventListener('change', (ev) => {
+    const arq = ev.target.files[0];
+    ev.target.value = '';
+    enviarLaunch(arq);
+  });
 
   // ---------- foto ampliada ----------
   function abrirFoto(url) {

@@ -856,6 +856,28 @@ if (process.env.PATIO_SYNC_ENABLED !== 'false') {
   }
 }
 
+// ---------- Kanban de OS: relatórios Launch do Gmail (a cada 5 min, todos os dias) ----------
+// LAUNCH_FONTE=mock lê PDFs de KANBAN_LAUNCH_MOCK_DIR (desenvolvimento); sem GMAIL_* fica desligado.
+{
+  const launchFonte = require('./kanban/launch-fonte');
+  const modoLaunch = launchFonte.modo();
+  if (modoLaunch === 'desligado') {
+    console.log('launch: leitura do Gmail desligada (faltam GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN)');
+  } else {
+    console.log(`launch: fonte dos relatórios = ${modoLaunch}`);
+    criarScheduler({
+      db,
+      rotulo: 'launch',
+      tabelaLock: 'kb_launch_lock',
+      intervaloMin: Number(process.env.LAUNCH_INTERVAL_MIN) || 5,
+      tickMs: 30_000,
+      folgaMs: 30_000,
+      janela: { diasSemana: [0, 1, 2, 3, 4, 5, 6], inicioMin: 0, fimMin: 24 * 60 },
+      sincronizar: (o) => launchFonte.sincronizarLaunch(db, kanbanStorage, launchFonte.criarFonte(), { ...o, broadcast }),
+    }).iniciar();
+  }
+}
+
 // ---------- Kanban de OS: sincronização automática (seg–sex 07:00–19:00, a cada 2 min) ----------
 // Desligue com KANBAN_SYNC_ENABLED=false. KANBAN_FONTE=mock usa o Onmotor simulado (desenvolvimento).
 if (process.env.KANBAN_SYNC_ENABLED !== 'false') {
