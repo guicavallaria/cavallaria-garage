@@ -285,7 +285,8 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   r.get('/cards/:id/launch', (req, res) => responder(res, () => launch.listarDoCard(db, storage, req.params.id), log));
 
   r.get('/launch/nao-vinculados', (req, res) => responder(res, async () => ({
-    estado: launchFonte.estadoLaunch(db), relatorios: await launch.listarNaoVinculados(db, storage),
+    estado: launchFonte.estadoLaunch(db), antigos: req.query.antigos === '1',
+    relatorios: await launch.listarNaoVinculados(db, storage, { antigos: req.query.antigos === '1' }),
   }), log));
 
   // Vincular/desvincular à mão: gestor.

@@ -187,8 +187,25 @@ async function listarDoCard(db, storage, cardId) {
 }
 
 // "Relatórios não vinculados", com sugestões de card (mesmo chassi/placa ou marca), mais recentes primeiro.
-async function listarNaoVinculados(db, storage) {
-  const rels = db.prepare(`${SQL_REL} AND r.card_id IS NULL ORDER BY r.relatorio_em DESC`).all();
+// Sem card, "pendente" = vale alguém olhar: chegou nos últimos 7 dias ou existe card ATIVO do mesmo
+// chassi/placa. O resto (a caixa recebe ~300 relatórios por mês, a maioria de OS já fechadas) fica
+// guardado como "antigo", fora da lista e do contador; o vínculo automático continua valendo para ele.
+const DIAS_PENDENTE = 7;
+const SQL_PENDENTE = `(r.relatorio_em >= ? OR EXISTS (SELECT 1 FROM kb_cards c WHERE c.arquivado_em IS NULL AND (c.chassi = r.chassi
+    OR (c.chassi IS NULL AND c.placa_normalizada IS NOT NULL
+        AND c.placa_normalizada = (SELECT v.placa_normalizada FROM veiculos v WHERE v.chassi = r.chassi)))))`;
+const limitePendente = (agora) => new Date(new Date(agora).getTime() - DIAS_PENDENTE * DIA_MS).toISOString();
+
+function contarNaoVinculados(db, { agora = agoraUtc() } = {}) {
+  const r = db.prepare(`SELECT COUNT(*) AS total, SUM(${SQL_PENDENTE}) AS pendentes
+      FROM launch_relatorios r WHERE r.card_id IS NULL AND r.removido_em IS NULL`).get(limitePendente(agora));
+  return { pendentes: r.pendentes || 0, antigos: (r.total || 0) - (r.pendentes || 0) };
+}
+
+async function listarNaoVinculados(db, storage, { antigos = false, agora = agoraUtc() } = {}) {
+  const rels = antigos
+    ? db.prepare(`${SQL_REL} AND r.card_id IS NULL AND NOT ${SQL_PENDENTE} ORDER BY r.relatorio_em DESC`).all(limitePendente(agora))
+    : db.prepare(`${SQL_REL} AND r.card_id IS NULL AND ${SQL_PENDENTE} ORDER BY r.relatorio_em DESC`).all(limitePendente(agora));
   const out = await comUrl(storage, rels);
   for (const r of out) {
     r.sugestoes = cardsDoChassi(db, r.chassi).map((c) => ({ id: c.id, os_numero: c.os_numero, placa: c.placa, modelo: c.modelo, arquivado: Boolean(c.arquivado_em) }));
@@ -198,5 +215,5 @@ async function listarNaoVinculados(db, storage) {
 
 module.exports = {
   extrairDoNome, noPeriodo, cardParaRelatorio, recalcularPrincipal, importarRelatorio, vincularPendentes, vincularManual, desvincular,
-  listarDoCard, listarNaoVinculados, TOLERANCIA_ANTES_DIAS, MAX_PDF,
+  listarDoCard, listarNaoVinculados, contarNaoVinculados, TOLERANCIA_ANTES_DIAS, MAX_PDF, DIAS_PENDENTE,
 };

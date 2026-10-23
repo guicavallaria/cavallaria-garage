@@ -25,9 +25,10 @@
   }
 
   let busca = {}; // relatório → resultados da busca de card
+  let verAntigos = false; // relatórios antigos sem card ativo (escondidos por padrão)
 
   async function carregar() {
-    const { estado, relatorios } = await api('/api/kanban/launch/nao-vinculados');
+    const { estado, relatorios } = await api(`/api/kanban/launch/nao-vinculados${verAntigos ? '?antigos=1' : ''}`);
     $('lnEstado').innerHTML = `Fonte: <strong>${esc(MODO[estado.modo] || estado.modo)}</strong>
       · última leitura ${estado.ultima_ok_em ? dataBR(estado.ultima_ok_em) : '—'}
       ${estado.ultimo_erro ? `<br><span class="kb-erro-inline" style="display:inline-block">${esc(estado.ultimo_erro)}</span>` : ''}`;
@@ -43,8 +44,14 @@
           <button type="submit" class="kb-botao kb-botao-sec">Buscar</button>
         </form>
         <div class="ln-cards">${(busca[r.id] || []).map((c) => `<button type="button" data-vincular="${c.id}">OS ${esc(c.os_numero)} · ${esc(c.placa || '')} · ${esc(c.modelo || '')} · ${esc(c.fase_nome || '')}</button>`).join('')}</div>
-      </li>`).join('') || '<li class="kb-dica">Nenhum relatório sem card. 👍</li>';
+      </li>`).join('') || `<li class="kb-dica">${verAntigos ? 'Nenhum relatório antigo.' : 'Nenhum relatório recente sem card. 👍'}</li>`;
+    const n = estado.nao_vinculados_antigos || 0;
+    $('lnAntigos').hidden = !n && !verAntigos;
+    $('lnAntigos').textContent = verAntigos ? '← Voltar aos relatórios recentes' : `Mostrar ${n} relatório(s) antigo(s) sem card ativo`;
+    $('lnTitulo').textContent = verAntigos ? 'Antigos: mais de 7 dias e sem card ativo do mesmo chassi (OS já fechadas)' : '';
   }
+
+  $('lnAntigos').addEventListener('click', () => { verAntigos = !verAntigos; busca = {}; carregar().catch((e) => avisar(e.message, true)); window.scrollTo(0, 0); });
 
   $('lnLista').addEventListener('submit', async (ev) => {
     const f = ev.target.closest('form[data-buscar]');

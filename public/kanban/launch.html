@@ -38,9 +38,11 @@
       <span id="lnEstado">Carregando…</span>
       <button type="button" id="lnSync" class="kb-botao kb-botao-sec">⟳ Buscar e-mails agora</button>
     </div>
-    <p class="kb-dica">Relatórios que chegaram por e-mail e não acharam card pelo chassi. Ao vincular, o relatório vai para a linha do tempo do card.
+    <p class="kb-dica">Relatórios dos últimos 7 dias (ou com card ativo do mesmo chassi) que não acharam card sozinhos. Ao vincular, o relatório vai para a linha do tempo do card.
       Quando um card ganha o chassi de um destes relatórios, o vínculo acontece sozinho.</p>
+    <p id="lnTitulo" class="kb-dica"></p>
     <ul id="lnLista" class="ln-lista"></ul>
+    <p><button type="button" id="lnAntigos" class="kb-botao kb-botao-sec" hidden></button></p>
   </main>
   <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
   <script src="/kanban/sessao.js"></script>

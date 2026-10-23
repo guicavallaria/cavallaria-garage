@@ -108,7 +108,7 @@ function estadoLaunch(db) {
     modo: modo(),
     ultima_ok_em: ultimaOk ? ultimaOk.terminado_em : null,
     ultimo_erro: ultima && ultima.terminado_em && !ultima.sucesso ? ultima.erro : null,
-    nao_vinculados: db.prepare('SELECT COUNT(*) AS n FROM launch_relatorios WHERE card_id IS NULL AND removido_em IS NULL').get().n,
+    ...(() => { const n = launch.contarNaoVinculados(db); return { nao_vinculados: n.pendentes, nao_vinculados_antigos: n.antigos }; })(),
   };
 }
 

@@ -336,3 +336,19 @@ test('Gmail: limite de velocidade espera e tenta de novo; no máximo N e-mails p
   assert.equal(db.prepare("SELECT status FROM launch_emails WHERE message_id = 'v1'").get().status, 'erro', 'link vencido não trava a fila');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM launch_emails').get().n, 3);
 });
+
+test('não vinculados: só recentes (7 dias) ou com card ativo do chassi; antigos ficam guardados à parte, fora do contador', async () => {
+  const { db, card } = banco();
+  const AGORA = '2026-10-23T18:00:00.000Z';
+  await importar(db, 'Ford_3FA6P0D91ER345713_AllSystemDTC_20261022120000.pdf', '2026-10-22T12:00:00.000Z'); // recente, sem card → pendente
+  await importar(db, 'Audi_99ADJ78V4G4003526_AllSystemDTC_20260920120000.pdf', '2026-09-20T12:00:00.000Z'); // antigo, sem card → antigo
+  await importar(db, `BMW_${VIN}_AllSystemDTC_20260901120000.pdf`, '2026-09-01T12:00:00.000Z'); // antigo, mas card ativo do chassi → pendente
+  assert.deepEqual(launch.contarNaoVinculados(db, { agora: AGORA }), { pendentes: 2, antigos: 1 });
+  const pend = await launch.listarNaoVinculados(db, storage, { agora: AGORA });
+  assert.deepEqual(pend.map((r) => r.marca).sort(), ['BMW', 'Ford']);
+  const ant = await launch.listarNaoVinculados(db, storage, { agora: AGORA, antigos: true });
+  assert.deepEqual(ant.map((r) => r.marca), ['Audi']);
+  // card arquivado não segura o relatório antigo na lista
+  db.prepare("UPDATE kb_cards SET arquivado_em = '2026-10-23T00:00:00.000Z' WHERE id = ?").run(card.id);
+  assert.deepEqual(launch.contarNaoVinculados(db, { agora: AGORA }), { pendentes: 1, antigos: 2 });
+});
