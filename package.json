@@ -5,13 +5,16 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "s3-dev": "node tools/s3-dev.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@aws-sdk/s3-request-presigner": "^3.1156.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "express": "^5.2.1",

@@ -6,6 +6,7 @@ const { adquirirLock, liberarLock } = require('../patio/lock');
 const { modoFonte, fonteConfigurada } = require('./fonte');
 const { anoCurto } = require('../patio/veiculo');
 const acoes = require('./acoes');
+const linhaTempo = require('./linha-tempo');
 
 const primeiroNome = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
@@ -14,7 +15,8 @@ const json = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { retur
 const SQL_CARDS = `
   SELECT c.*, f.nome AS fase_nome,
          COALESCE(c.mecanico_id, pv.mecanico_id) AS mecanico_efetivo_id,
-         m.nome AS mecanico_nome
+         m.nome AS mecanico_nome,
+         (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL) AS qtd_midias
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -40,13 +42,15 @@ function resumoCard(c) {
     tem_chassi: Boolean(c.chassi),
     arquivado_em: c.arquivado_em,
     arquivado_por: c.arquivado_por,
+    qtd_midias: c.qtd_midias || 0,
   };
 }
 
-// Responde a ação; ErroAcao vira o status certo, qualquer outro erro vira 500 sem detalhes do cliente.
-function responder(res, fn, log) {
+// Responde a ação (síncrona ou assíncrona); ErroAcao vira o status certo, qualquer outro
+// erro vira 500 sem detalhes (nada de dado de cliente no log nem na resposta).
+async function responder(res, fn, log) {
   try {
-    res.json(fn());
+    res.json(await fn());
   } catch (e) {
     if (e instanceof acoes.ErroAcao) return res.status(e.status).json({ erro: e.message, fase_id: e.fase_id });
     log('kanban: erro na ação: ' + e.message);
@@ -54,7 +58,7 @@ function responder(res, fn, log) {
   }
 }
 
-function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2 }) {
+function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2, storage = null }) {
   const r = express.Router();
 
   r.get('/estado', (req, res) => {
@@ -65,6 +69,8 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       agora: new Date().toISOString(),
       fonte: modoFonte(),
       fonte_configurada: fonteConfigurada(),
+      storage_configurado: Boolean(storage && storage.configurado),
+      limites: { video_max_s: linhaTempo.DURACAO_MAX_VIDEO_S, texto_max: linhaTempo.MAX_TEXTO },
       fases,
       cards,
       mecanicos,
@@ -72,12 +78,16 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     });
   });
 
-  r.get('/cards/:id', (req, res) => {
+  r.get('/cards/:id', async (req, res) => {
     const c = db.prepare(`${SQL_CARDS} WHERE c.id = ?`).get(Number(req.params.id));
     if (!c) return res.status(404).json({ erro: 'Card não encontrado' });
-    const eventos = db.prepare(`SELECT id, tipo, texto, dados, operador_nome, criado_em, editado_em
-        FROM kb_eventos WHERE card_id = ? AND removido_em IS NULL ORDER BY criado_em DESC, id DESC`).all(c.id)
-      .map((e) => ({ ...e, dados: json(e.dados) }));
+    let eventos;
+    try {
+      eventos = await linhaTempo.listarEventos(db, storage, c.id);
+    } catch (e) {
+      log('kanban: erro ao montar a linha do tempo: ' + e.message);
+      return res.status(500).json({ erro: 'Erro ao carregar a linha do tempo' });
+    }
     res.json({
       card: {
         ...resumoCard(c),
@@ -96,6 +106,38 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       eventos,
     });
   });
+
+  // ---------- Etapa 3: linha do tempo (texto, foto, vídeo, áudio) ----------
+  const corpo = (req) => req.body || {};
+
+  r.post('/cards/:id/textos', (req, res) => responder(res, () => {
+    const e = linhaTempo.postarTexto(db, req.params.id, { texto: corpo(req).texto, operador: corpo(req).operador });
+    broadcast('kanban');
+    return { ok: true, evento_id: e.id };
+  }, log));
+
+  r.put('/eventos/:id', (req, res) => responder(res, () => {
+    const e = linhaTempo.editarTexto(db, req.params.id, { texto: corpo(req).texto, operador: corpo(req).operador });
+    broadcast('kanban');
+    return { ok: true, evento_id: e.id };
+  }, log));
+
+  r.get('/eventos/:id/versoes', (req, res) => responder(res, () => linhaTempo.versoesTexto(db, req.params.id), log));
+
+  r.post('/eventos/:id/remover', (req, res) => responder(res, () => {
+    const out = linhaTempo.removerRegistro(db, req.params.id, { operador: corpo(req).operador });
+    broadcast('kanban');
+    return out;
+  }, log));
+
+  // Envio de mídia em 2 passos: pedir (URL assinada) → navegador manda ao bucket → confirmar.
+  r.post('/cards/:id/midias', (req, res) => responder(res, () => linhaTempo.pedirEnvio(db, storage, req.params.id, corpo(req)), log));
+
+  r.post('/midias/:id/confirmar', (req, res) => responder(res, async () => {
+    const out = await linhaTempo.confirmarEnvio(db, storage, req.params.id, { legenda: corpo(req).legenda, operador: corpo(req).operador });
+    if (!out.ja_enviado) broadcast('kanban');
+    return { ok: true, ...out };
+  }, log));
 
   // ---------- Etapa 2: mover, arquivar, desarquivar, mecânico, busca ----------
   const porId = (id) => resumoCard(db.prepare(`${SQL_CARDS} WHERE c.id = ?`).get(id));

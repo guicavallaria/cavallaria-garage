@@ -235,3 +235,56 @@ button { font: inherit; }
   .kb-filtros select { font-size: 15px; max-width: none; width: 100%; }
   .kb-filtros, .kb-filtros label:first-child { width: 100%; }
 }
+
+/* ---------- Etapa 3: registrar texto/foto/vídeo/áudio e linha do tempo ---------- */
+.kb-registrar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 4px 0 8px; }
+.kb-reg {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; min-height: 58px;
+  border: 1px solid var(--linha); background: #fff; border-radius: 10px; cursor: pointer; font-size: 20px;
+}
+.kb-reg span { font-size: 12px; color: var(--suave); }
+.kb-reg:disabled { opacity: .4; cursor: default; }
+.kb-dica { font-size: 13px; color: var(--suave); margin: 6px 0; }
+.kb-comp { background: #f6f7f9; border: 1px solid var(--linha); border-radius: 10px; padding: 12px; margin: 4px 0 8px; }
+.kb-comp textarea, .kb-editar {
+  width: 100%; font: inherit; font-size: 16px; padding: 10px; border: 1px solid #c9ced8; border-radius: 8px; resize: vertical; margin-bottom: 8px;
+}
+.kb-comp .kb-campo { margin: 8px 0; }
+.kb-previa { display: block; max-width: 100%; max-height: 320px; border-radius: 8px; background: #000; margin-bottom: 6px; }
+.kb-comp audio { width: 100%; }
+.kb-aviso-inline { background: var(--aviso-fundo); color: var(--aviso); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin: 6px 0; }
+.kb-erro-inline { background: var(--alerta-fundo); color: var(--alerta); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin: 6px 0; }
+.kb-gravando p { margin: 0 0 10px; font-size: 15px; }
+.kb-rec { color: #d32f2f; animation: kb-pisca 1s steps(2, start) infinite; }
+@keyframes kb-pisca { to { visibility: hidden; } }
+
+.kb-pendentes { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.kb-pendente { background: #eef4fb; border: 1px solid #cfe0f3; border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+.kb-pendente-erro { background: var(--alerta-fundo); border-color: #f3c7c3; }
+.kb-pendente .kb-acoes-card { margin: 8px 0 0; }
+.kb-barra { height: 6px; background: #d5e3f3; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.kb-barra span { display: block; height: 100%; background: var(--azul); transition: width .3s; }
+
+.kb-tempo-linha li.kb-ev-texto::before, .kb-tempo-linha li.kb-ev-foto::before,
+.kb-tempo-linha li.kb-ev-video::before, .kb-tempo-linha li.kb-ev-audio::before { background: var(--azul); }
+.kb-tempo-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kb-tempo-menu { float: right; display: inline-flex; gap: 4px; }
+.kb-tempo-menu button, .kb-link-pequeno {
+  border: none; background: none; color: var(--azul); font-size: 12.5px; cursor: pointer; padding: 2px 4px; text-decoration: underline;
+}
+.kb-link-pequeno { display: inline-block; }
+.kb-miniatura { display: block; border: none; padding: 0; background: none; cursor: zoom-in; margin: 4px 0; }
+.kb-miniatura img { display: block; max-width: min(260px, 100%); max-height: 260px; border-radius: 8px; border: 1px solid var(--linha); }
+.kb-player { display: block; width: 100%; max-width: 420px; max-height: 300px; border-radius: 8px; background: #000; margin: 4px 0; }
+.kb-player-audio { display: block; width: 100%; max-width: 420px; margin: 4px 0; }
+.kb-versoes { background: #f6f7f9; border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: 13px; display: grid; gap: 6px; }
+.kb-tempo-linha .kb-confirmar { margin: 8px 0 0; }
+
+.kb-visor { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.kb-visor img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.kb-visor-fechar { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 16px; color: #fff; font-size: 13px; opacity: .8; }
+
+.kb-fila {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: #185FA5; color: #fff;
+  font-size: 13.5px; padding: 8px 16px; padding-bottom: max(8px, env(safe-area-inset-bottom)); text-align: center;
+}

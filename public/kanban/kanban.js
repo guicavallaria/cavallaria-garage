@@ -131,6 +131,7 @@
       <div class="kb-card-l3">
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
+        ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
       ${!c.os_finalizada_em && c.os_sumiu_em ? '<span class="kb-selo kb-selo-sumiu">Saiu da Novidades do Onmotor</span>' : ''}
@@ -301,10 +302,19 @@
   });
 
   // ---------- painel do card ----------
+  // Estado do painel: modo (mover/arquivar), compositor (texto/mídia/gravação), edição e
+  // confirmação de remoção na linha do tempo. A linha do tempo, os envios pendentes e o
+  // compositor têm contêineres próprios: recarregar um não apaga o que está sendo digitado no outro.
+  const M = window.KanbanMidia;
+  let refrescoUrls = null;
+
   async function abrirCard(id) {
-    cardAberto = { id: Number(id), card: null, modo: null };
-    $('kbPainelTitulo').textContent = 'Carregando…';
-    $('kbPainelCorpo').innerHTML = '';
+    const mesmo = cardAberto && cardAberto.id === Number(id);
+    if (!mesmo) cardAberto = { id: Number(id), card: null, modo: null, compositor: null, editando: null, removendo: null, versoes: {} };
+    if (!mesmo) {
+      $('kbPainelTitulo').textContent = 'Carregando…';
+      $('kbPainelCorpo').innerHTML = '';
+    }
     $('kbPainel').hidden = false;
     $('kbVeu').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -313,14 +323,35 @@
       if (!cardAberto || cardAberto.id !== Number(id)) return;
       cardAberto.card = dados.card;
       cardAberto.eventos = dados.eventos;
-      renderPainel();
+      if (mesmo && $('kbLinhaTempo')) {
+        renderCabecalho();
+        renderLinhaTempo();
+        if (!cardAberto.compositor) renderCompositor(); // não redesenha o que está sendo digitado/gravado
+      } else renderPainel();
     } catch (e) {
       $('kbPainelCorpo').innerHTML = `<p class="kb-vazio">${esc(e.message)}</p>`;
     }
+    // As URLs das mídias valem 15 min: com o painel aberto, renova a cada 10 min.
+    clearInterval(refrescoUrls);
+    refrescoUrls = setInterval(() => { if (cardAberto && !cardAberto.editando) abrirCard(cardAberto.id); }, 10 * 60_000);
   }
 
   function renderPainel() {
-    const { card: c, eventos, modo } = cardAberto;
+    $('kbPainelCorpo').innerHTML = `
+      <div id="kbCabecalho"></div>
+      <div id="kbCompositor"></div>
+      <h3 class="kb-sec">Linha do tempo</h3>
+      <ul id="kbPendentes" class="kb-pendentes"></ul>
+      <ul id="kbLinhaTempo" class="kb-tempo-linha"></ul>
+      <div id="kbDadosOnmotor"></div>`;
+    renderCabecalho();
+    renderCompositor();
+    renderLinhaTempo();
+    M.listarItens().then(renderPendentes);
+  }
+
+  function renderCabecalho() {
+    const { card: c, modo } = cardAberto;
     const fase = estado.fases.find((f) => f.id === c.fase_id);
     const d = c.veiculo_detalhes || {};
     const linha = (rotulo, valor) => (valor ? `<dt>${rotulo}</dt><dd>${esc(valor)}</dd>` : '');
@@ -353,10 +384,12 @@
         </label>`;
     }
 
-    $('kbPainelCorpo').innerHTML = `
+    $('kbCabecalho').innerHTML = `
       <span class="kb-fase-atual">${fase ? `${fase.id}. ${esc(fase.nome)}` : ''}</span>
       ${c.os_finalizada_em ? `<p class="kb-selo kb-selo-fin">OS finalizada no Onmotor em ${dataBR(c.os_finalizada_em)}</p>` : ''}
-      ${acoes}
+      ${acoes}`;
+
+    $('kbDadosOnmotor').innerHTML = `
       <h3 class="kb-sec">Veículo (Onmotor)</h3>
       <dl class="kb-dados">
         ${linha('Placa', c.placa)}${linha('Marca', c.marca)}${linha('Modelo', c.modelo)}${linha('Ano', c.ano_completo)}
@@ -367,29 +400,317 @@
       <dl class="kb-dados">
         ${linha('Nome', c.cliente_nome)}${linha('Telefone', c.cliente_telefone)}
         ${linha('Entrada', c.os_entrada_em ? dataBR(c.os_entrada_em) : '')}
-      </dl>
-      <h3 class="kb-sec">Linha do tempo</h3>
-      <ul class="kb-tempo-linha">
-        ${eventos.map((e) => `<li><div class="kb-tempo-meta">${dataBR(e.criado_em)} · ${esc(e.operador_nome)}</div>${esc(e.texto || '')}</li>`).join('')}
-      </ul>`;
+      </dl>`;
   }
 
+  // ---------- compositor: registrar texto, foto, vídeo, áudio ----------
+  function renderCompositor() {
+    const el = $('kbCompositor');
+    if (!el || !cardAberto) return;
+    const { card: c, compositor: comp } = cardAberto;
+    if (c.arquivado_em || cardAberto.modo) { el.innerHTML = ''; return; }
+    const semStorage = !estado.storage_configurado;
+
+    if (!comp) {
+      el.innerHTML = `<div class="kb-registrar" role="group" aria-label="Registrar">
+          <button type="button" class="kb-reg" data-acao="reg-texto">✍️<span>Texto</span></button>
+          <button type="button" class="kb-reg" data-acao="reg-foto" ${semStorage ? 'disabled' : ''}>📷<span>Foto</span></button>
+          <button type="button" class="kb-reg" data-acao="reg-video" ${semStorage ? 'disabled' : ''}>🎥<span>Vídeo</span></button>
+          <button type="button" class="kb-reg" data-acao="reg-audio" ${semStorage ? 'disabled' : ''}>🎙️<span>Áudio</span></button>
+          <button type="button" class="kb-reg" data-acao="reg-galeria" ${semStorage ? 'disabled' : ''}>🖼️<span>Galeria</span></button>
+        </div>
+        ${semStorage ? '<p class="kb-dica">Foto, vídeo e áudio estão desligados: o armazenamento de mídia não foi configurado no servidor.</p>' : ''}`;
+      return;
+    }
+    if (comp.tipo === 'texto') {
+      el.innerHTML = `<div class="kb-comp">
+          <textarea id="kbTexto" rows="4" maxlength="${estado.limites.texto_max}" placeholder="O que aconteceu com o veículo?">${esc(comp.texto || '')}</textarea>
+          <div class="kb-acoes-card">
+            <button type="button" class="kb-botao" data-acao="salvar-texto">Salvar</button>
+            <button type="button" class="kb-botao kb-botao-sec" data-acao="cancelar-comp">Cancelar</button>
+          </div></div>`;
+      setTimeout(() => { const t = $('kbTexto'); if (t) t.focus(); }, 0);
+      return;
+    }
+    if (comp.tipo === 'gravando') {
+      el.innerHTML = `<div class="kb-comp kb-gravando">
+          <p><span class="kb-rec">●</span> Gravando… <strong id="kbRecTempo">0:00</strong></p>
+          <div class="kb-acoes-card">
+            <button type="button" class="kb-botao" data-acao="parar-gravacao">■ Parar</button>
+            <button type="button" class="kb-botao kb-botao-sec" data-acao="cancelar-comp">Descartar</button>
+          </div></div>`;
+      return;
+    }
+    if (comp.tipo === 'midia') {
+      if (comp.preparando) { el.innerHTML = '<div class="kb-comp"><p class="kb-dica">Preparando o arquivo…</p></div>'; return; }
+      const prontos = comp.preparados;
+      const primeiroItem = prontos[0];
+      let previa = '';
+      if (primeiroItem) {
+        if (primeiroItem.tipo === 'foto') previa = `<img class="kb-previa" src="${comp.urls[0]}" alt="Prévia da foto">`;
+        else if (primeiroItem.tipo === 'video') previa = `<video class="kb-previa" src="${comp.urls[0]}" controls playsinline preload="metadata"></video>`;
+        else previa = `<audio src="${comp.urls[0]}" controls preload="metadata"></audio>`;
+      }
+      const resumo = prontos.map((p) => `${p.tipo === 'foto' ? 'Foto' : p.tipo === 'video' ? `Vídeo de ${Math.round(p.duracao)} s` : `Áudio${p.duracao ? ` de ${Math.round(p.duracao)} s` : ''}`} · ${M.tamanhoTexto(p.blob.size)}`);
+      el.innerHTML = `<div class="kb-comp">
+          ${previa}
+          ${prontos.length > 1 ? `<p class="kb-dica">${prontos.length} arquivos: ${resumo.join(' · ')}</p>` : (prontos.length ? `<p class="kb-dica">${resumo[0]}</p>` : '')}
+          ${comp.avisos.map((a) => `<p class="kb-aviso-inline">${esc(a)}</p>`).join('')}
+          ${comp.erros.map((a) => `<p class="kb-erro-inline">${esc(a)}</p>`).join('')}
+          ${prontos.length ? `<label class="kb-campo">Legenda (opcional)
+            <input id="kbLegenda" type="text" maxlength="500" value="${esc(comp.legenda || '')}" placeholder="Ex.: pastilha dianteira gasta"></label>` : ''}
+          <div class="kb-acoes-card">
+            ${prontos.length ? `<button type="button" class="kb-botao" data-acao="enviar-midia">Enviar${prontos.length > 1 ? ` ${prontos.length}` : ''}</button>` : ''}
+            <button type="button" class="kb-botao kb-botao-sec" data-acao="cancelar-comp">${prontos.length ? 'Cancelar' : 'Fechar'}</button>
+          </div></div>`;
+    }
+  }
+
+  function fecharCompositor() {
+    const comp = cardAberto && cardAberto.compositor;
+    if (comp && comp.urls) comp.urls.forEach((u) => URL.revokeObjectURL(u));
+    if (comp && comp.gravacao) comp.gravacao.cancelar();
+    if (comp && comp.relogio) clearInterval(comp.relogio);
+    if (cardAberto) cardAberto.compositor = null;
+    renderCompositor();
+  }
+
+  async function arquivosEscolhidos(lista, tipoForcado) {
+    if (!lista.length || !cardAberto) return;
+    const comp = { tipo: 'midia', preparando: true, preparados: [], urls: [], avisos: [], erros: [], legenda: '' };
+    cardAberto.compositor = comp;
+    renderCompositor();
+    for (const arq of lista) {
+      const tipo = tipoForcado || (arq.type.startsWith('video/') ? 'video' : arq.type.startsWith('audio/') ? 'audio' : 'foto');
+      try {
+        const p = tipo === 'video' ? await M.prepararVideo(arq) : tipo === 'audio' ? await M.prepararAudio(arq) : await M.prepararFoto(arq);
+        comp.preparados.push(p);
+        comp.urls.push(URL.createObjectURL(p.blob));
+        if (p.aviso) comp.avisos.push(p.aviso);
+      } catch (e) {
+        comp.erros.push(`${arq.name || 'Arquivo'}: ${e.message}`);
+      }
+    }
+    comp.preparando = false;
+    if (cardAberto && cardAberto.compositor === comp) renderCompositor();
+  }
+
+  async function enviarMidias() {
+    const comp = cardAberto.compositor;
+    const op = await garantirOperador();
+    if (!op) return;
+    const legenda = ($('kbLegenda') && $('kbLegenda').value.trim()) || '';
+    for (const p of comp.preparados) await M.enfileirar({ cardId: cardAberto.id, preparado: p, legenda, operador: op });
+    avisar(comp.preparados.length > 1 ? `${comp.preparados.length} arquivos na fila de envio` : 'Enviando…');
+    fecharCompositor();
+  }
+
+  async function comecarGravacao() {
+    if (!M.podeGravarAudio()) { $('kbInAudio').click(); return; }
+    try {
+      const gravacao = await M.iniciarGravacao();
+      const comp = { tipo: 'gravando', gravacao };
+      cardAberto.compositor = comp;
+      renderCompositor();
+      comp.relogio = setInterval(() => {
+        const s = Math.floor((Date.now() - gravacao.inicio) / 1000);
+        const el = $('kbRecTempo');
+        if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      }, 500);
+    } catch (e) {
+      avisar('Sem acesso ao microfone: escolha um arquivo de áudio', true);
+      $('kbInAudio').click();
+    }
+  }
+
+  async function pararGravacao() {
+    const comp = cardAberto.compositor;
+    clearInterval(comp.relogio);
+    const { blob, duracao } = await comp.gravacao.parar();
+    comp.gravacao = null;
+    const p = await M.prepararAudio(blob, duracao);
+    cardAberto.compositor = { tipo: 'midia', preparando: false, preparados: [p], urls: [URL.createObjectURL(blob)], avisos: [], erros: [], legenda: '' };
+    renderCompositor();
+  }
+
+  // ---------- linha do tempo ----------
+  const ICONE = {
+    criado: '🆕', fase: '➡️', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
+    texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️',
+  };
+
+  function midiaHtml(e) {
+    const m = e.midia;
+    if (!m) return '';
+    if (!m.url) return '<p class="kb-dica">Mídia indisponível (armazenamento não configurado).</p>';
+    if (m.tipo === 'foto') {
+      return `<button type="button" class="kb-miniatura" data-acao="ver-foto" data-url="${esc(m.url)}" aria-label="Ampliar foto">
+        <img src="${esc(m.miniatura_url || m.url)}" alt="${esc(e.texto || 'Foto')}" loading="lazy"></button>`;
+    }
+    if (m.tipo === 'video') {
+      return `<video class="kb-player" src="${esc(m.url)}" ${m.miniatura_url ? `poster="${esc(m.miniatura_url)}"` : ''} controls playsinline preload="none"></video>
+        <a class="kb-link-pequeno" href="${esc(m.url)}" target="_blank" rel="noopener">Abrir vídeo em outra aba</a>`;
+    }
+    if (m.tipo === 'audio') return `<audio class="kb-player-audio" src="${esc(m.url)}" controls preload="none"></audio>`;
+    return `<a href="${esc(m.url)}" target="_blank" rel="noopener">Abrir arquivo</a>`;
+  }
+
+  function eventoHtml(e) {
+    const ca = cardAberto;
+    const ativo = !ca.card.arquivado_em;
+    let corpo;
+    if (ca.editando === e.id) {
+      corpo = `<textarea class="kb-editar" rows="4" maxlength="${estado.limites.texto_max}">${esc(e.texto || '')}</textarea>
+        <div class="kb-acoes-card">
+          <button type="button" class="kb-botao" data-acao="salvar-edicao" data-id="${e.id}">Salvar</button>
+          <button type="button" class="kb-botao kb-botao-sec" data-acao="cancelar-edicao">Cancelar</button></div>`;
+    } else {
+      corpo = `${midiaHtml(e)}${e.texto ? `<div class="kb-tempo-texto">${esc(e.texto)}</div>` : ''}`;
+    }
+    const versoes = ca.versoes[e.id];
+    const historico = versoes ? `<div class="kb-versoes"><strong>Versões anteriores</strong>${versoes.length ? versoes.map((v) =>
+      `<div><span class="kb-tempo-meta">até ${dataBR(v.editado_em)} (editado por ${esc(v.editado_por)})</span><div>${esc(v.texto)}</div></div>`).join('') : '<div>Nenhuma.</div>'}</div>` : '';
+    const confirmar = ca.removendo === e.id
+      ? `<div class="kb-confirmar"><p>Remover este registro? Ele some da linha do tempo, mas fica guardado para auditoria.</p>
+          <div class="kb-acoes-card"><button type="button" class="kb-botao kb-botao-perigo" data-acao="confirmar-remover" data-id="${e.id}">Sim, remover</button>
+          <button type="button" class="kb-botao kb-botao-sec" data-acao="cancelar-remover">Cancelar</button></div></div>` : '';
+    const menu = ativo && ca.editando !== e.id && ca.removendo !== e.id && (e.editavel || e.removivel)
+      ? `<span class="kb-tempo-menu">${e.editavel ? `<button type="button" data-acao="editar" data-id="${e.id}">Editar</button>` : ''}${e.removivel ? `<button type="button" data-acao="remover" data-id="${e.id}">Remover</button>` : ''}</span>` : '';
+    return `<li class="kb-ev kb-ev-${e.tipo}" data-id="${e.id}">
+      <div class="kb-tempo-meta">${ICONE[e.tipo] || '•'} ${dataBR(e.criado_em)} · ${esc(e.operador_nome)}
+        ${e.editado_em ? `· <button type="button" class="kb-link-pequeno" data-acao="versoes" data-id="${e.id}">editado</button>` : ''}${menu}</div>
+      ${corpo}${historico}${confirmar}</li>`;
+  }
+
+  function renderLinhaTempo() {
+    const el = $('kbLinhaTempo');
+    if (!el || !cardAberto) return;
+    el.innerHTML = cardAberto.eventos.map(eventoHtml).join('');
+  }
+
+  function renderPendentes(itens, progresso = new Map()) {
+    const el = $('kbPendentes');
+    if (!el || !cardAberto) return;
+    const meus = itens.filter((i) => i.card_id === cardAberto.id);
+    const nome = { foto: 'Foto', video: 'Vídeo', audio: 'Áudio' };
+    el.innerHTML = meus.map((i) => {
+      const pct = progresso.has(i.cliente_id) ? Math.round(progresso.get(i.cliente_id) * 100) : null;
+      let situacao;
+      if (i.estado === 'enviando') situacao = `Enviando${pct !== null ? ` ${pct}%` : '…'}`;
+      else if (i.estado === 'falhou') situacao = `Não enviado: ${esc(i.erro || 'erro')}`;
+      else if (i.erro) situacao = `Nova tentativa em instantes (${esc(i.erro)})`;
+      else situacao = 'Na fila';
+      return `<li class="kb-pendente${i.estado === 'falhou' ? ' kb-pendente-erro' : ''}">
+        <div><strong>${ICONE[i.tipo]} ${nome[i.tipo]}</strong> · ${M.tamanhoTexto(i.meta.tamanho)} · ${situacao}</div>
+        ${pct !== null ? `<div class="kb-barra"><span style="width:${pct}%"></span></div>` : ''}
+        ${i.estado === 'falhou' ? `<div class="kb-acoes-card"><button type="button" class="kb-botao" data-acao="fila-tentar" data-id="${i.cliente_id}">Tentar de novo</button>
+          <button type="button" class="kb-botao kb-botao-sec" data-acao="fila-descartar" data-id="${i.cliente_id}">Descartar</button></div>` : ''}
+      </li>`;
+    }).join('');
+  }
+
+  // Barra global: envios em andamento em qualquer card.
+  function renderFilaGlobal(itens) {
+    const el = $('kbFila');
+    const ativos = itens.filter((i) => i.estado !== 'falhou');
+    const falhas = itens.length - ativos.length;
+    if (!itens.length) { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = [
+      ativos.length ? `⬆️ Enviando ${ativos.length} arquivo(s)${navigator.onLine ? '' : ' — sem internet, continua quando a conexão voltar'}` : '',
+      falhas ? `⚠️ ${falhas} envio(s) com erro: abra o card para tentar de novo` : '',
+    ].filter(Boolean).join(' · ');
+  }
+
+  M.aoMudar((itens, progresso) => { renderPendentes(itens, progresso); renderFilaGlobal(itens); });
+  M.aoConcluir((item) => {
+    if (cardAberto && cardAberto.id === item.card_id) abrirCard(item.card_id);
+    carregar();
+  });
+
+  // ---------- cliques no painel ----------
   $('kbPainelCorpo').addEventListener('click', async (ev) => {
-    const b = ev.target.closest('button[data-acao]');
-    if (!b || !cardAberto || !cardAberto.card) return;
+    const b = ev.target.closest('[data-acao]');
+    if (!b || b.tagName === 'SELECT' || !cardAberto || !cardAberto.card) return;
     const c = cardAberto.card;
+    const id = Number(b.dataset.id);
     switch (b.dataset.acao) {
-      case 'mover': cardAberto.modo = 'mover'; renderPainel(); break;
-      case 'arquivar': cardAberto.modo = 'arquivar'; renderPainel(); break;
-      case 'voltar': cardAberto.modo = null; renderPainel(); break;
+      case 'mover': cardAberto.modo = 'mover'; renderCabecalho(); renderCompositor(); break;
+      case 'arquivar': cardAberto.modo = 'arquivar'; renderCabecalho(); renderCompositor(); break;
+      case 'voltar': cardAberto.modo = null; renderCabecalho(); renderCompositor(); break;
       case 'mover-para': {
         b.disabled = true;
         const r = await mover(c.id, Number(b.dataset.fase), c.fase_id);
+        cardAberto && (cardAberto.modo = null);
         if (r && r.arquivado) fecharCard(); else abrirCard(c.id);
         break;
       }
       case 'confirmar-arquivar': b.disabled = true; await arquivar(c.id); break;
       case 'desarquivar': b.disabled = true; await desarquivar(c.id); break;
+
+      case 'reg-texto': cardAberto.compositor = { tipo: 'texto', texto: '' }; renderCompositor(); break;
+      case 'reg-foto': $('kbInFoto').click(); break;
+      case 'reg-video': $('kbInVideo').click(); break;
+      case 'reg-galeria': $('kbInGaleria').click(); break;
+      case 'reg-audio': comecarGravacao(); break;
+      case 'parar-gravacao': b.disabled = true; await pararGravacao(); break;
+      case 'cancelar-comp': fecharCompositor(); break;
+      case 'enviar-midia': b.disabled = true; await enviarMidias(); break;
+      case 'salvar-texto': {
+        const texto = $('kbTexto').value.trim();
+        if (!texto) { $('kbTexto').focus(); break; }
+        const op = await garantirOperador();
+        if (!op) break;
+        b.disabled = true;
+        try {
+          await api(`/api/kanban/cards/${c.id}/textos`, { json: { texto, operador: op } });
+          fecharCompositor();
+          abrirCard(c.id);
+        } catch (e) { avisar(e.message, true); b.disabled = false; }
+        break;
+      }
+
+      case 'ver-foto': abrirFoto(b.dataset.url); break;
+      case 'editar': cardAberto.editando = id; cardAberto.removendo = null; renderLinhaTempo(); break;
+      case 'cancelar-edicao': cardAberto.editando = null; renderLinhaTempo(); break;
+      case 'salvar-edicao': {
+        const t = b.closest('li').querySelector('textarea').value.trim();
+        if (!t) break;
+        const op = await garantirOperador();
+        if (!op) break;
+        b.disabled = true;
+        try {
+          await api(`/api/kanban/eventos/${id}`, { method: 'PUT', json: { texto: t, operador: op } });
+          cardAberto.editando = null;
+          delete cardAberto.versoes[id];
+          abrirCard(c.id);
+        } catch (e) { avisar(e.message, true); b.disabled = false; }
+        break;
+      }
+      case 'versoes':
+        if (cardAberto.versoes[id]) delete cardAberto.versoes[id];
+        else {
+          try { cardAberto.versoes[id] = (await api(`/api/kanban/eventos/${id}/versoes`)).versoes.slice().reverse(); } catch (e) { avisar(e.message, true); }
+        }
+        renderLinhaTempo();
+        break;
+      case 'remover': cardAberto.removendo = id; cardAberto.editando = null; renderLinhaTempo(); break;
+      case 'cancelar-remover': cardAberto.removendo = null; renderLinhaTempo(); break;
+      case 'confirmar-remover': {
+        const op = await garantirOperador();
+        if (!op) break;
+        b.disabled = true;
+        try {
+          await api(`/api/kanban/eventos/${id}/remover`, { json: { operador: op } });
+          cardAberto.removendo = null;
+          avisar('Registro removido');
+          abrirCard(c.id);
+          carregar();
+        } catch (e) { avisar(e.message, true); b.disabled = false; }
+        break;
+      }
+      case 'fila-tentar': M.tentarDeNovo(b.dataset.id); break;
+      case 'fila-descartar': M.descartar(b.dataset.id); break;
       default: break;
     }
   });
@@ -397,8 +718,30 @@
     const sel = ev.target.closest('select[data-acao="mecanico"]');
     if (sel && cardAberto) trocarMecanico(cardAberto.id, sel.value);
   });
+  $('kbPainelCorpo').addEventListener('input', (ev) => {
+    if (ev.target.id === 'kbTexto' && cardAberto && cardAberto.compositor) cardAberto.compositor.texto = ev.target.value;
+    if (ev.target.id === 'kbLegenda' && cardAberto && cardAberto.compositor) cardAberto.compositor.legenda = ev.target.value;
+  });
+
+  // Entradas de arquivo (câmera, galeria, áudio). Zeradas depois de ler para permitir escolher o mesmo arquivo de novo.
+  for (const [id, tipo] of [['kbInFoto', 'foto'], ['kbInVideo', 'video'], ['kbInAudio', 'audio'], ['kbInGaleria', null]]) {
+    $(id).addEventListener('change', (ev) => {
+      const arquivos = [...ev.target.files];
+      ev.target.value = '';
+      arquivosEscolhidos(arquivos, tipo);
+    });
+  }
+
+  // ---------- foto ampliada ----------
+  function abrirFoto(url) {
+    $('kbFotoGrande').src = url;
+    $('kbVisor').hidden = false;
+  }
+  $('kbVisor').addEventListener('click', () => { $('kbVisor').hidden = true; $('kbFotoGrande').src = ''; });
 
   function fecharCard() {
+    if (cardAberto && cardAberto.compositor) fecharCompositor();
+    clearInterval(refrescoUrls);
     cardAberto = null;
     $('kbPainel').hidden = true;
     $('kbVeu').hidden = true;

@@ -71,7 +71,20 @@
   </div>
 
   <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
+  <div id="kbFila" class="kb-fila" role="status" hidden></div>
 
+  <div id="kbVisor" class="kb-visor" hidden role="dialog" aria-label="Foto ampliada">
+    <img id="kbFotoGrande" alt="Foto ampliada" />
+    <span class="kb-visor-fechar">Toque para fechar</span>
+  </div>
+
+  <!-- Câmera e arquivos: o botão do painel abre a entrada certa. -->
+  <input id="kbInFoto" type="file" accept="image/*" capture="environment" hidden />
+  <input id="kbInVideo" type="file" accept="video/*" capture="environment" hidden />
+  <input id="kbInAudio" type="file" accept="audio/*" hidden />
+  <input id="kbInGaleria" type="file" accept="image/*,video/*" multiple hidden />
+
+  <script src="/kanban/midia.js"></script>
   <script src="/kanban/kanban.js"></script>
 </body>
 </html>

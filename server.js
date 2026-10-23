@@ -13,6 +13,8 @@ const { criarScheduler } = require('./patio/scheduler');
 const kanbanRoutes = require('./kanban/routes');
 const { sincronizarKanban, JANELA_KANBAN } = require('./kanban/sync');
 const kanbanFonte = require('./kanban/fonte');
+const kanbanStorage = require('./kanban/storage').criarStorage();
+if (!kanbanStorage.configurado) console.log('kanban: armazenamento de mídia desligado — ' + kanbanStorage.motivo);
 const KANBAN_INTERVALO_MIN = Number(process.env.KANBAN_SYNC_INTERVAL_MIN) || 2;
 
 const app = express();
@@ -79,6 +81,7 @@ app.use('/api/patio', patioRoutes.criarRouter({ db, broadcast, log: console.log 
 // ---------- Kanban de OS (cards criados a partir da Novidades do Onmotor) ----------
 app.use('/api/kanban', kanbanRoutes.criarRouter({
   db, broadcast, log: console.log, criarCliente: kanbanFonte.criarCliente, intervaloMin: KANBAN_INTERVALO_MIN,
+  storage: kanbanStorage,
 }));
 // A página fica em public/kanban/index.html (servida pelo static em /kanban/).
 
