@@ -135,3 +135,103 @@ button { font: inherit; }
   background: var(--verde-marca);
 }
 .kb-tempo-meta { font-size: 12.5px; color: var(--suave); margin-bottom: 2px; }
+
+/* ---------- Etapa 2: operador, busca, filtros, mover, arquivar ---------- */
+.kb-btn-operador { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.25); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kb-ferramentas {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--linha);
+}
+.kb-busca { display: flex; gap: 8px; flex: 1 1 340px; min-width: 0; }
+.kb-busca input {
+  flex: 1; min-width: 0; font-size: 16px; /* 16px evita o zoom automático do iPhone */
+  padding: 9px 12px; border: 1px solid #c9ced8; border-radius: 8px;
+}
+.kb-modo { display: flex; border: 1px solid #c9ced8; border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
+.kb-modo-btn { border: none; background: #fff; padding: 0 12px; font-size: 14px; cursor: pointer; min-height: 40px; }
+.kb-modo-btn[aria-selected="true"] { background: var(--texto); color: #fff; }
+.kb-filtros { display: flex; gap: 12px; flex-wrap: wrap; }
+.kb-filtros label { font-size: 13px; color: var(--suave); display: flex; align-items: center; gap: 6px; }
+.kb-filtros select { font-size: 15px; padding: 7px 8px; border: 1px solid #c9ced8; border-radius: 8px; background: #fff; max-width: 180px; }
+.kb-so-pc { display: none !important; }
+@media (min-width: 900px) { .kb-so-pc { display: flex !important; } }
+
+.kb-card { cursor: grab; }
+.kb-card.kb-arrastando { opacity: .4; }
+.kb-coluna.kb-alvo { outline: 2px dashed var(--azul); outline-offset: -2px; background: #dfe8f5; }
+
+/* Resultados da busca: lista */
+.kb-resultados { padding: 12px 16px 40px; max-width: 900px; }
+.kb-res-topo { font-size: 14px; color: var(--suave); margin: 0 0 10px; }
+.kb-res-lista { display: flex; flex-direction: column; gap: 8px; }
+.kb-res-item {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; cursor: pointer;
+  background: #fff; border: 1px solid var(--linha); border-radius: 8px; padding: 10px 12px; font: inherit; color: inherit;
+}
+.kb-res-item:hover { border-color: #c4c9d3; }
+.kb-res-fase { font-size: 12.5px; color: var(--suave); text-align: right; }
+.kb-res-sub { font-size: 13px; color: var(--suave); grid-column: 1 / -1; }
+
+/* Painel: ações */
+.kb-acoes-card { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; }
+.kb-botao {
+  border: none; border-radius: 8px; padding: 10px 14px; font-size: 15px; cursor: pointer; min-height: 44px;
+  background: var(--azul); color: #fff;
+}
+.kb-botao:disabled { opacity: .5; cursor: default; }
+.kb-botao-sec { background: #eef0f4; color: var(--texto); }
+.kb-botao-perigo { background: var(--alerta); color: #fff; }
+.kb-lista-fases { display: grid; gap: 6px; margin: 0 0 16px; }
+.kb-lista-fases button {
+  text-align: left; border: 1px solid var(--linha); background: #fff; border-radius: 8px; padding: 11px 12px;
+  font-size: 15px; cursor: pointer; min-height: 44px;
+}
+.kb-lista-fases button[disabled] { background: var(--texto); color: #fff; border-color: var(--texto); cursor: default; }
+.kb-confirmar { background: var(--alerta-fundo); border-radius: 8px; padding: 12px; margin: 0 0 16px; font-size: 14px; }
+.kb-confirmar p { margin: 0 0 10px; }
+.kb-arquivado-info { background: var(--aviso-fundo); color: var(--aviso); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin: 0 0 12px; }
+.kb-campo-mecanico { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 0 0 16px; flex-wrap: wrap; }
+.kb-campo-mecanico select { font-size: 15px; padding: 7px 8px; border: 1px solid #c9ced8; border-radius: 8px; }
+.kb-campo-mecanico small { color: var(--suave); }
+
+/* Modal do operador */
+.kb-modal { position: fixed; inset: 0; z-index: 50; background: rgba(15,18,26,.5); display: flex; align-items: flex-end; justify-content: center; }
+@media (min-width: 600px) { .kb-modal { align-items: center; } }
+.kb-modal-caixa {
+  background: #fff; width: 100%; max-width: 440px; border-radius: 14px 14px 0 0; padding: 18px 16px;
+  padding-bottom: max(18px, env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto;
+}
+@media (min-width: 600px) { .kb-modal-caixa { border-radius: 14px; } }
+.kb-modal-caixa h2 { font-size: 18px; margin: 0 0 4px; }
+.kb-modal-dica { font-size: 13px; color: var(--suave); margin: 0 0 12px; }
+.kb-lista-operadores { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.kb-lista-operadores button {
+  border: 1px solid var(--linha); background: #fff; border-radius: 8px; padding: 10px; font-size: 15px; cursor: pointer; min-height: 44px;
+}
+.kb-lista-operadores button[aria-pressed="true"] { background: var(--texto); color: #fff; border-color: var(--texto); }
+.kb-campo { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--suave); }
+.kb-campo input { font-size: 16px; padding: 9px 12px; border: 1px solid #c9ced8; border-radius: 8px; color: var(--texto); }
+.kb-modal-acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* Aviso rápido (toast) */
+.kb-aviso {
+  position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: var(--texto); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 60;
+  max-width: calc(100% - 32px); box-shadow: 0 6px 18px rgba(0,0,0,.2);
+}
+.kb-aviso.kb-aviso-erro { background: var(--alerta); }
+
+/* Celular: topo em duas linhas e busca + filtro compactos */
+.kb-ultima { white-space: nowrap; }
+@media (max-width: 899px) {
+  .kb-topbar { gap: 8px 12px; }
+  .kb-acoes { margin-left: 0; flex-basis: 100%; justify-content: space-between; }
+  .kb-btn-operador { max-width: 45%; }
+  .kb-ferramentas { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; }
+  .kb-busca { display: contents; }
+  .kb-busca input { grid-column: 1 / -1; }
+  .kb-filtros label { font-size: 0; gap: 0; } /* esconde o rótulo, o select diz "Mecânico: Todos" */
+  .kb-filtros select { font-size: 15px; max-width: none; width: 100%; }
+  .kb-filtros, .kb-filtros label:first-child { width: 100%; }
+}

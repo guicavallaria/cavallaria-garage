@@ -13,18 +13,38 @@
     <h1>Kanban de OS</h1>
     <span id="kbFonte" class="kb-chip kb-chip-mock" hidden>Onmotor SIMULADO</span>
     <div class="kb-acoes">
+      <button id="kbOperador" class="kb-btn kb-btn-operador" type="button" title="Trocar o operador deste aparelho">👤 <span id="kbOperadorNome">Quem é você?</span></button>
       <span id="kbUltimaSync" class="kb-ultima"></span>
-      <button id="kbSync" class="kb-btn" type="button">⟳ Sincronizar agora</button>
+      <button id="kbSync" class="kb-btn" type="button">⟳ Sincronizar</button>
     </div>
   </header>
 
   <div id="kbBanner" class="kb-banner" role="alert" hidden></div>
+
+  <div class="kb-ferramentas">
+    <div class="kb-busca">
+      <input id="kbBusca" type="search" placeholder="🔍 OS, placa, modelo, cliente ou chassi" autocomplete="off" aria-label="Buscar" />
+      <div class="kb-modo" role="tablist" aria-label="O que buscar">
+        <button type="button" class="kb-modo-btn" role="tab" data-modo="ativos" aria-selected="true">Ativos</button>
+        <button type="button" class="kb-modo-btn" role="tab" data-modo="arquivados" aria-selected="false">Arquivados</button>
+      </div>
+    </div>
+    <div class="kb-filtros">
+      <label>Mecânico
+        <select id="kbFiltroMecanico"><option value="">Todos</option></select>
+      </label>
+      <label class="kb-so-pc">Fase
+        <select id="kbFiltroFase"><option value="">Todas</option></select>
+      </label>
+    </div>
+  </div>
 
   <nav id="kbAbas" class="kb-abas" aria-label="Fases"></nav>
 
   <main id="kbQuadro" class="kb-quadro" aria-live="polite">
     <p class="kb-carregando">Carregando…</p>
   </main>
+  <section id="kbResultados" class="kb-resultados" hidden aria-live="polite"></section>
 
   <aside id="kbPainel" class="kb-painel" hidden aria-modal="true" role="dialog" aria-labelledby="kbPainelTitulo">
     <div class="kb-painel-topo">
@@ -34,6 +54,23 @@
     <div id="kbPainelCorpo" class="kb-painel-corpo"></div>
   </aside>
   <div id="kbVeu" class="kb-veu" hidden></div>
+
+  <div id="kbModalOperador" class="kb-modal" hidden role="dialog" aria-modal="true" aria-labelledby="kbModalOperadorTitulo">
+    <form id="kbFormOperador" class="kb-modal-caixa">
+      <h2 id="kbModalOperadorTitulo">Quem está usando este aparelho?</h2>
+      <p class="kb-modal-dica">O nome fica gravado em cada registro e é lembrado neste aparelho até ser trocado.</p>
+      <div id="kbListaOperadores" class="kb-lista-operadores"></div>
+      <label class="kb-campo">Outro nome
+        <input id="kbOperadorLivre" type="text" maxlength="60" autocomplete="name" />
+      </label>
+      <div class="kb-modal-acoes">
+        <button type="button" id="kbOperadorCancelar" class="kb-botao kb-botao-sec">Cancelar</button>
+        <button type="submit" class="kb-botao">Confirmar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="kbAviso" class="kb-aviso" role="status" hidden></div>
 
   <script src="/kanban/kanban.js"></script>
 </body>
