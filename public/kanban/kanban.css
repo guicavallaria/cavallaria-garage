@@ -88,6 +88,7 @@ button { font: inherit; }
 .kb-selo { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
 .kb-selo-fin { background: var(--alerta-fundo); color: var(--alerta); }
 .kb-selo-sumiu { background: var(--aviso-fundo); color: var(--aviso); }
+.kb-selo-empresa { background: #1f2330; color: #fff; font-size: 10.5px; font-weight: 700; letter-spacing: .4px; padding: 2px 6px; border-radius: 4px; }
 
 /* PC: todas as colunas lado a lado */
 @media (min-width: 900px) {

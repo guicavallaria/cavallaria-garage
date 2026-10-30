@@ -6,6 +6,7 @@
 // e só então redireciona para uma URL assinada de 15 minutos.
 const crypto = require('crypto');
 const { registrar: registrarAuditoria } = require('../acesso/auditoria');
+const { dadosEmpresa } = require('./empresa');
 const { ErroAcao, validarOperador } = require('./acoes');
 
 const DIAS_PADRAO = 7;
@@ -33,7 +34,7 @@ function resolverLink(db, token, { agora = new Date() } = {}) {
   const l = db.prepare('SELECT * FROM kb_links WHERE token = ?').get(token);
   if (!l) return { erro: 'Link inválido' };
   if (l.revogado_em) return { erro: 'Este link foi cancelado pela oficina' };
-  if (Date.parse(l.expira_em) < agora.getTime()) return { erro: 'Este link expirou. Peça um novo à Cavallaria Garage.' };
+  if (Date.parse(l.expira_em) < agora.getTime()) return { erro: 'Este link expirou. Peça um novo à oficina.' };
   const m = db.prepare("SELECT * FROM kb_midias WHERE id = ? AND status = 'enviado' AND removido_em IS NULL").get(l.midia_id);
   if (!m) return { erro: 'Arquivo não disponível' };
   db.prepare('UPDATE kb_links SET acessos = acessos + 1 WHERE id = ?').run(l.id);
@@ -66,10 +67,12 @@ function linksDoCard(db, cardId, { agora = new Date() } = {}) {
 function rotaPublica({ db, storage, log = console.log }) {
   return async (req, res) => {
     const r = resolverLink(db, req.params.token);
+    const dono = db.prepare(`SELECT c.empresa FROM kb_links l JOIN kb_midias m ON m.id = l.midia_id JOIN kb_cards c ON c.id = m.card_id WHERE l.token = ?`).get(String(req.params.token));
+    const emp = dadosEmpresa(dono && dono.empresa);
     if (r.erro) {
       res.status(410).type('html').send(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Cavallaria Garage</title><body style="font-family:Arial,sans-serif;padding:32px;max-width:520px;margin:auto;color:#1f2330">
-        <h1 style="font-size:20px">Cavallaria Garage</h1><p>${r.erro}</p><p>(46) 2604-0612</p></body></html>`);
+        <title>${emp.nome}</title><body style="font-family:Arial,sans-serif;padding:32px;max-width:520px;margin:auto;color:#1f2330">
+        <h1 style="font-size:20px">${emp.nome}</h1><p>${r.erro}</p><p>${emp.telefone}</p></body></html>`);
       return;
     }
     registrarAuditoria(db, {
@@ -78,7 +81,7 @@ function rotaPublica({ db, storage, log = console.log }) {
     });
     try {
       const ext = { video: 'mp4', audio: 'm4a', pdf: 'pdf', foto: 'jpg' }[r.midia.tipo] || 'bin';
-      const url = await storage.urlVer(r.midia.chave_objeto, { nomeArquivo: `cavallaria-${r.midia.id}.${ext}`, contentType: r.midia.mime });
+      const url = await storage.urlVer(r.midia.chave_objeto, { nomeArquivo: `${emp.id}-${r.midia.id}.${ext}`, contentType: r.midia.mime });
       res.redirect(302, url);
     } catch (e) {
       log('kanban: link público falhou: ' + e.message);

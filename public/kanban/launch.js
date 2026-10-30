@@ -38,12 +38,12 @@
         <div class="ln-meta">${esc(r.nome_arquivo)} · recebido em ${dataBR(r.relatorio_em)} · ${r.origem === 'email' ? 'do e-mail' : 'envio manual'}
           · <a href="${esc(r.url)}" target="_blank" rel="noopener">📄 abrir PDF</a></div>
         ${r.sugestoes.length ? `<div><span class="ln-meta">Mesmo chassi (fora do período da OS ou card arquivado):</span>
-          <div class="ln-cards">${r.sugestoes.map((c) => `<button type="button" class="sug" data-vincular="${c.id}">OS ${esc(c.os_numero)} · ${esc(c.placa || '')} · ${esc(c.modelo || '')}${c.arquivado ? ' (arquivado)' : ''}</button>`).join('')}</div></div>` : ''}
+          <div class="ln-cards">${r.sugestoes.map((c) => `<button type="button" class="sug" data-vincular="${c.id}">${c.empresa === 'awdyna' ? 'AWDYNA · ' : ''}OS ${esc(c.os_numero)} · ${esc(c.placa || '')} · ${esc(c.modelo || '')}${c.arquivado ? ' (arquivado)' : ''}</button>`).join('')}</div></div>` : ''}
         <form class="ln-busca" data-buscar="${r.id}">
           <input type="search" placeholder="Buscar card: OS, placa, modelo ou cliente" aria-label="Buscar card">
           <button type="submit" class="kb-botao kb-botao-sec">Buscar</button>
         </form>
-        <div class="ln-cards">${(busca[r.id] || []).map((c) => `<button type="button" data-vincular="${c.id}">OS ${esc(c.os_numero)} · ${esc(c.placa || '')} · ${esc(c.modelo || '')} · ${esc(c.fase_nome || '')}</button>`).join('')}</div>
+        <div class="ln-cards">${(busca[r.id] || []).map((c) => `<button type="button" data-vincular="${c.id}">${c.empresa === 'awdyna' ? 'AWDYNA · ' : ''}OS ${esc(c.os_numero)} · ${esc(c.placa || '')} · ${esc(c.modelo || '')} · ${esc(c.fase_nome || '')}</button>`).join('')}</div>
       </li>`).join('') || `<li class="kb-dica">${verAntigos ? 'Nenhum relatório antigo.' : 'Nenhum relatório recente sem card. 👍'}</li>`;
     const n = estado.nao_vinculados_antigos || 0;
     $('lnAntigos').hidden = !n && !verAntigos;

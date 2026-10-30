@@ -8,8 +8,11 @@
 //   - OS conhecida que passou a finalizada       → marca "OS finalizada no Onmotor"
 //   - card na fase 9 + OS finalizada             → arquiva sozinho
 //   - card ativo que sumiu da Novidades          → confere na página da OS
-// Na PRIMEIRA leitura (carga inicial) todas as OS abertas viram card e a fase sai da
-// etapa do Onmotor; depois disso a fase só muda pela mão do operador.
+// Na PRIMEIRA leitura de cada empresa (carga inicial) todas as OS abertas viram card e a fase
+// sai da etapa do Onmotor; depois disso a fase só muda pela mão do operador.
+//
+// Cavallaria e AWDYNA são lidas uma de cada vez, no mesmo quadro. Um veículo com OS nas duas fica
+// com um card em cada empresa (UNIQUE empresa + os_numero). Empresa que falha não afeta a outra.
 //
 // Leitura que falha não altera nenhum card: só grava o erro no log, e a tela mostra
 // "Sincronização com Onmotor parada desde hh:mm".
@@ -25,8 +28,9 @@ const { formatarPlaca } = require('../patio/placa');
 const { dentroDaJanela } = require('../patio/tz');
 const { buscarDetalhesOS, extrairDadosOS, anoVeiculo } = require('./onmotor-os');
 const { spParaUtc, formatarBR } = require('./datas');
+const { dadosEmpresa } = require('./empresa');
 
-const EMPRESA = 'cavallaria';
+const EMPRESA_PADRAO = 'cavallaria';
 const LIMITE_DETALHES = 15;        // cada detalhe = página da OS (~0,4–1 MB) + modal do veículo
 const LIMITE_SUMIDAS = 5;          // OS sumidas conferidas por rodada
 const REVERIFICAR_SUMIDA_MIN = 60; // uma OS sumida e não finalizada é conferida de novo a cada 1 h
@@ -59,7 +63,7 @@ function placaDaLinha(l) {
   return { placa: l.placa ? formatarPlaca(l.placa) : (l.placaTexto || null), placa_normalizada: l.placa || null };
 }
 
-function criarFuncoes(db) {
+function criarFuncoes(db, empresa = EMPRESA_PADRAO) {
   const st = {
     card: db.prepare('SELECT * FROM kb_cards WHERE empresa = ? AND os_numero = ?'),
     evento: db.prepare(`INSERT INTO kb_eventos (card_id, tipo, texto, dados, operador_nome, criado_em)
@@ -69,12 +73,12 @@ function criarFuncoes(db) {
     jaIgnorada: db.prepare("SELECT 1 FROM onmotor_eventos WHERE empresa = ? AND os_numero = ? AND tipo = 'ignorada' LIMIT 1"),
   };
   return {
-    card: (osNumero) => st.card.get(EMPRESA, osNumero),
+    card: (osNumero) => st.card.get(empresa, osNumero),
     evento: (cardId, tipo, texto, dados, agora) =>
       st.evento.run(cardId, tipo, texto, dados ? JSON.stringify(dados) : null, agora),
     onmotor: ({ osNumero, osId, tipo, payload, hash, agora, erro = null }) =>
-      st.onmotor.run(EMPRESA, osNumero, osId || null, tipo, JSON.stringify(payload), hash, agora, 1, agora, erro),
-    jaIgnorada: (osNumero) => Boolean(st.jaIgnorada.get(EMPRESA, osNumero)),
+      st.onmotor.run(empresa, osNumero, osId || null, tipo, JSON.stringify(payload), hash, agora, 1, agora, erro),
+    jaIgnorada: (osNumero) => Boolean(st.jaIgnorada.get(empresa, osNumero)),
   };
 }
 
@@ -88,8 +92,8 @@ function registrarFinalizacao(db, f, card, finalizadaEm, agora) {
 }
 
 // Aplica uma leitura da Novidades (síncrono, dentro de uma transação).
-function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
-  const f = criarFuncoes(db);
+function aplicarLeitura(db, linhas, { agora, primeiraCarga, empresa = EMPRESA_PADRAO }) {
+  const f = criarFuncoes(db, empresa);
   const r = { criados: 0, atualizados: 0, finalizados: 0, ignoradas: 0, vistos: new Set(), avisos: [] };
 
   const inserir = db.prepare(`INSERT INTO kb_cards (
@@ -120,7 +124,7 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
       // Na carga inicial, o "tempo na fase" conta da data da etapa no Onmotor, não do momento da importação.
       const faseDesde = (campo && l.datas && spParaUtc(l.datas[campo])) || agora;
       const id = inserir.run(
-        EMPRESA, l.osNumber, l.osId || null, placa, placa_normalizada, l.modelo || null, l.km || null,
+        empresa, l.osNumber, l.osId || null, placa, placa_normalizada, l.modelo || null, l.km || null,
         l.proprietario || null, l.telefone || null, spParaUtc(l.entrada), JSON.stringify(l.etapas), h, agora,
         fase, faseDesde, primeiraCarga ? 'carga_inicial' : 'sync', agora, agora, inicioDaOS(l),
       ).lastInsertRowid;
@@ -189,11 +193,11 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga }) {
 }
 
 // Cards ativos que não apareceram nesta leitura: confere na página da OS se foram finalizados.
-async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMIDAS, avisos }) {
-  const f = criarFuncoes(db);
+async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMIDAS, avisos, empresa = EMPRESA_PADRAO }) {
+  const f = criarFuncoes(db, empresa);
   const candidatos = db.prepare(`SELECT * FROM kb_cards
       WHERE empresa = ? AND arquivado_em IS NULL AND os_finalizada_em IS NULL AND os_id_interno IS NOT NULL
-      ORDER BY COALESCE(os_verificada_em, '') ASC, id ASC`).all(EMPRESA)
+      ORDER BY COALESCE(os_verificada_em, '') ASC, id ASC`).all(empresa)
     .filter((c) => !vistos.has(c.id));
   let finalizados = 0;
   let conferidas = 0;
@@ -236,10 +240,10 @@ function arquivarFinalizadosNaFase9(db, agora) {
 }
 
 // Completa marca, modelo, ano e chassi com a página da OS + cadastro do veículo.
-async function enriquecerDetalhes(db, client, { agora, limite = LIMITE_DETALHES, avisos }) {
+async function enriquecerDetalhes(db, client, { agora, limite = LIMITE_DETALHES, avisos, empresa = EMPRESA_PADRAO }) {
   const pendentes = db.prepare(`SELECT * FROM kb_cards
-      WHERE arquivado_em IS NULL AND detalhes_ok = 0 AND os_id_interno IS NOT NULL AND detalhes_tentativas < ?
-      ORDER BY detalhes_tentativas ASC, id ASC LIMIT ?`).all(MAX_TENTATIVAS_DETALHE, limite);
+      WHERE empresa = ? AND arquivado_em IS NULL AND detalhes_ok = 0 AND os_id_interno IS NOT NULL AND detalhes_tentativas < ?
+      ORDER BY detalhes_tentativas ASC, id ASC LIMIT ?`).all(empresa, MAX_TENTATIVAS_DETALHE, limite);
   const upsertVeiculo = db.prepare(`INSERT INTO veiculos (chassi, placa_normalizada, marca, modelo, ano, primeiro_visto_em, ultimo_visto_em)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(chassi) DO UPDATE SET placa_normalizada = COALESCE(excluded.placa_normalizada, placa_normalizada),
@@ -280,9 +284,12 @@ const lerEstado = (db, chave) => (db.prepare('SELECT valor FROM kb_estado WHERE 
 const gravarEstado = (db, chave, valor) =>
   db.prepare('INSERT INTO kb_estado (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor').run(chave, valor);
 
-async function sincronizarKanban(db, { client, agoraFn = agoraUtc, broadcast = () => {}, log = console.log, origem = 'auto', limiteDetalhes = LIMITE_DETALHES } = {}) {
+// A marca de carga inicial é por empresa: a AWDYNA tem a sua, mesmo com a Cavallaria já carregada.
+const chaveCarga = (empresa) => (empresa === EMPRESA_PADRAO ? 'carga_inicial_em' : `carga_inicial_em:${empresa}`);
+
+async function sincronizarKanban(db, { client, empresa = EMPRESA_PADRAO, agoraFn = agoraUtc, broadcast = () => {}, log = console.log, origem = 'auto', limiteDetalhes = LIMITE_DETALHES } = {}) {
   const inicio = agoraFn();
-  const logId = db.prepare('INSERT INTO kb_sync_log (origem, iniciado_em) VALUES (?, ?)').run(origem, inicio).lastInsertRowid;
+  const logId = db.prepare('INSERT INTO kb_sync_log (empresa, origem, iniciado_em) VALUES (?, ?, ?)').run(empresa, origem, inicio).lastInsertRowid;
   const fechar = db.prepare(`UPDATE kb_sync_log SET terminado_em = ?, sucesso = ?, os_lidas = ?, cards_criados = ?, cards_atualizados = ?,
       cards_finalizados = ?, cards_arquivados = ?, detalhes_lidos = ?, avisos = ?, erro = ? WHERE id = ?`);
   try {
@@ -290,59 +297,94 @@ async function sincronizarKanban(db, { client, agoraFn = agoraUtc, broadcast = (
     const lido = parseNovidades(await client.novidadesHtml());
     if (!lido.ok) throw new Error('página da Novidades inválida: ' + lido.problemas.join('; '));
 
-    const ativos = db.prepare('SELECT COUNT(*) AS n FROM kb_cards WHERE arquivado_em IS NULL').get().n;
+    const ativos = db.prepare('SELECT COUNT(*) AS n FROM kb_cards WHERE empresa = ? AND arquivado_em IS NULL').get(empresa).n;
     if (lido.linhas.length === 0 && ativos > 0) throw new Error('a Novidades veio sem nenhuma OS — leitura descartada');
 
     const agora = agoraFn();
-    const primeiraCarga = !lerEstado(db, 'carga_inicial_em');
+    const primeiraCarga = !lerEstado(db, chaveCarga(empresa));
     const r = db.transaction(() => {
-      const out = aplicarLeitura(db, lido.linhas, { agora, primeiraCarga });
-      if (primeiraCarga) gravarEstado(db, 'carga_inicial_em', agora);
+      const out = aplicarLeitura(db, lido.linhas, { agora, primeiraCarga, empresa });
+      if (primeiraCarga) gravarEstado(db, chaveCarga(empresa), agora);
       return out;
     })();
 
-    const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos });
+    const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos, empresa });
     const arquivados = arquivarFinalizadosNaFase9(db, agora);
-    const detalhes = await enriquecerDetalhes(db, client, { agora, limite: limiteDetalhes, avisos: r.avisos });
+    const detalhes = await enriquecerDetalhes(db, client, { agora, limite: limiteDetalhes, avisos: r.avisos, empresa });
 
     const finalizados = r.finalizados + sumidas.finalizados;
     if (r.ignoradas) r.avisos.unshift(`${r.ignoradas} OS já finalizadas na Novidades sem card (não importadas)`);
     fechar.run(agoraFn(), 1, lido.linhas.length, r.criados, r.atualizados, finalizados, arquivados, detalhes,
       r.avisos.join('\n') || null, null, logId);
-    log(`kanban sync (${origem})${primeiraCarga ? ' [carga inicial]' : ''}: ${lido.linhas.length} OS lidas, ${r.criados} cards novos, ` +
+    log(`kanban sync ${empresa} (${origem})${primeiraCarga ? ' [carga inicial]' : ''}: ${lido.linhas.length} OS lidas, ${r.criados} cards novos, ` +
       `${r.atualizados} atualizados, ${finalizados} finalizados, ${arquivados} arquivados, ${detalhes} com dados do veículo`);
     broadcast('kanban');
     return { ok: true, carga_inicial: primeiraCarga, os_lidas: lido.linhas.length, criados: r.criados, atualizados: r.atualizados,
       finalizados, arquivados, detalhes, avisos: r.avisos };
   } catch (e) {
     fechar.run(agoraFn(), 0, 0, 0, 0, 0, 0, 0, null, e.message, logId);
-    log(`kanban sync (${origem}) FALHOU: ${e.message}`);
+    log(`kanban sync ${empresa} (${origem}) FALHOU: ${e.message}`);
     broadcast('kanban');
     return { ok: false, erro: e.message };
   }
 }
 
-// Estado para o banner do kanban.
-function estadoSyncKanban(db, { agora = new Date(), intervaloMin = 2, janela = JANELA_KANBAN } = {}) {
-  const ultimaOk = db.prepare('SELECT * FROM kb_sync_log WHERE sucesso = 1 ORDER BY id DESC LIMIT 1').get();
-  const ultima = db.prepare('SELECT * FROM kb_sync_log ORDER BY id DESC LIMIT 1').get();
+const rotuloEmpresa = (empresa) => dadosEmpresa(empresa).rotulo;
+
+// Lê as empresas uma de cada vez. Uma que falha fica registrada no log e não afeta os cards nem a
+// leitura da outra; a rodada só conta como erro quando todas falham.
+async function sincronizarTodas(db, { clientes = [], ...opcoes } = {}) {
+  if (!clientes.length) return sincronizarKanban(db, { ...opcoes, client: null });
+  const resultados = [];
+  for (const { empresa, client } of clientes) resultados.push({ empresa, ...(await sincronizarKanban(db, { ...opcoes, client, empresa })) });
+  const soma = (campo) => resultados.reduce((t, r) => t + (r[campo] || 0), 0);
+  const falhas = resultados.filter((r) => !r.ok);
+  return {
+    ok: falhas.length < resultados.length,
+    carga_inicial: resultados.some((r) => r.carga_inicial),
+    os_lidas: soma('os_lidas'), criados: soma('criados'), atualizados: soma('atualizados'),
+    finalizados: soma('finalizados'), arquivados: soma('arquivados'), detalhes: soma('detalhes'),
+    avisos: resultados.flatMap((r) => r.avisos || []),
+    erro: falhas.map((r) => `${rotuloEmpresa(r.empresa)}: ${r.erro}`).join(' · ') || undefined,
+    empresas: resultados,
+  };
+}
+
+// Estado de UMA empresa: a última leitura dela e se está parada.
+function estadoDaEmpresa(db, empresa, { agora, intervaloMin, janela }) {
+  const ultimaOk = db.prepare('SELECT * FROM kb_sync_log WHERE empresa = ? AND sucesso = 1 ORDER BY id DESC LIMIT 1').get(empresa);
+  const ultima = db.prepare('SELECT * FROM kb_sync_log WHERE empresa = ? ORDER BY id DESC LIMIT 1').get(empresa);
   const minutosDesdeOk = ultimaOk ? (agora.getTime() - Date.parse(ultimaOk.terminado_em)) / 60_000 : null;
   const falhou = Boolean(ultima && ultima.terminado_em && !ultima.sucesso);
   const atrasada = dentroDaJanela(agora, janela) && minutosDesdeOk !== null && minutosDesdeOk > intervaloMin * 3 + 1;
-  const primeiraTentativa = db.prepare('SELECT iniciado_em FROM kb_sync_log ORDER BY id ASC LIMIT 1').get();
+  const primeiraTentativa = db.prepare('SELECT iniciado_em FROM kb_sync_log WHERE empresa = ? ORDER BY id ASC LIMIT 1').get(empresa);
+  return { empresa, ultimaOk, ultima, falhou, atrasada, primeiraTentativa, parada: falhou || atrasada };
+}
+
+// Estado para o banner do kanban. `empresas` = as lidas hoje (padrão: todas que já têm log). O banner
+// aparece se QUALQUER uma parou, e o erro diz qual; "lido às" mostra a leitura mais recente.
+function estadoSyncKanban(db, { agora = new Date(), intervaloMin = 2, janela = JANELA_KANBAN, empresas = null } = {}) {
+  const lista = empresas || db.prepare('SELECT DISTINCT empresa FROM kb_sync_log').all().map((r) => r.empresa);
+  const estados = lista.map((e) => estadoDaEmpresa(db, e, { agora, intervaloMin, janela }));
+  const comOk = estados.filter((e) => e.ultimaOk).map((e) => e.ultimaOk.terminado_em).sort();
+  const paradas = estados.filter((e) => e.parada);
+  const comErro = estados.filter((e) => e.falhou);
+  const desde = paradas.map((e) => (e.ultimaOk ? e.ultimaOk.terminado_em : (e.primeiraTentativa || {}).iniciado_em || null)).filter(Boolean).sort();
+  const tentativas = estados.filter((e) => e.ultima).map((e) => e.ultima.terminado_em || e.ultima.iniciado_em).sort();
+  const varias = lista.length > 1;
   return {
-    nunca_sincronizou: !ultimaOk,
-    parada: falhou || atrasada,
-    parada_desde: (falhou || atrasada) ? (ultimaOk ? ultimaOk.terminado_em : (primeiraTentativa || {}).iniciado_em || null) : null,
-    ultima_ok_em: ultimaOk ? ultimaOk.terminado_em : null,
-    ultima_tentativa_em: ultima ? ultima.terminado_em || ultima.iniciado_em : null,
-    ultimo_erro: falhou ? ultima.erro : null,
-    em_andamento: Boolean(ultima && !ultima.terminado_em),
+    nunca_sincronizou: !comOk.length,
+    parada: paradas.length > 0,
+    parada_desde: paradas.length ? desde[0] || null : null,
+    ultima_ok_em: comOk.length ? comOk[comOk.length - 1] : null,
+    ultima_tentativa_em: tentativas.length ? tentativas[tentativas.length - 1] : null,
+    ultimo_erro: comErro.length ? comErro.map((e) => (varias ? `${rotuloEmpresa(e.empresa)}: ${e.ultima.erro}` : e.ultima.erro)).join(' · ') : null,
+    em_andamento: estados.some((e) => e.ultima && !e.ultima.terminado_em),
     carga_inicial_em: lerEstado(db, 'carga_inicial_em'),
   };
 }
 
 module.exports = {
-  sincronizarKanban, estadoSyncKanban, aplicarLeitura, conferirSumidas, arquivarFinalizadosNaFase9, enriquecerDetalhes,
-  faseDaCargaInicial, hashLinha, JANELA_KANBAN, EMPRESA,
+  sincronizarKanban, sincronizarTodas, estadoSyncKanban, aplicarLeitura, conferirSumidas, arquivarFinalizadosNaFase9, enriquecerDetalhes,
+  faseDaCargaInicial, hashLinha, JANELA_KANBAN, EMPRESA_PADRAO,
 };

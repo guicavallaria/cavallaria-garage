@@ -88,7 +88,7 @@ test('sem card do chassi (ou fora do período da OS): fica em "não vinculados" 
   assert.equal(r.vinculado, false);
   const velho = await importar(db, `BMW_${VIN}_AllSystems.pdf`, '2026-09-01T12:00:00.000Z'); // muito antes da entrada
   assert.equal(velho.vinculado, false, 'relatório de outra visita não entra nesta OS');
-  const nv = await launch.listarNaoVinculados(db, storage);
+  const nv = await launch.listarNaoVinculados(db, storage, { agora: '2026-10-23T18:00:00.000Z' });
   assert.equal(nv.length, 2);
   assert.deepEqual(nv.find((x) => x.chassi === VIN).sugestoes.map((s) => s.id), [card.id], 'sugere o card do mesmo chassi');
 

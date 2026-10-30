@@ -209,7 +209,7 @@ async function listarNaoVinculados(db, storage, { antigos = false, agora = agora
     : db.prepare(`${SQL_REL} AND r.card_id IS NULL AND ${SQL_PENDENTE} ORDER BY r.relatorio_em DESC`).all(limitePendente(agora));
   const out = await comUrl(storage, rels);
   for (const r of out) {
-    r.sugestoes = cardsDoChassi(db, r.chassi).map((c) => ({ id: c.id, os_numero: c.os_numero, placa: c.placa, modelo: c.modelo, arquivado: Boolean(c.arquivado_em) }));
+    r.sugestoes = cardsDoChassi(db, r.chassi).map((c) => ({ id: c.id, empresa: c.empresa, os_numero: c.os_numero, placa: c.placa, modelo: c.modelo, arquivado: Boolean(c.arquivado_em) }));
   }
   return out;
 }

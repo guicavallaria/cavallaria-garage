@@ -102,7 +102,7 @@ function listar(db, { os = null, login = null, acao = null, limite = 300 } = {})
   if (os) { where.push('c.os_numero = ?'); args.push(String(os).trim()); }
   if (login) { where.push('lower(a.usuario_login) = lower(?)'); args.push(String(login).trim()); }
   if (acao) { where.push('a.acao = ?'); args.push(String(acao)); }
-  return db.prepare(`SELECT a.id, a.quando, a.usuario_login, a.operador, a.acao, a.card_id, c.os_numero, a.entidade, a.entidade_id, a.detalhes, a.ip
+  return db.prepare(`SELECT a.id, a.quando, a.usuario_login, a.operador, a.acao, a.card_id, c.os_numero, c.empresa, a.entidade, a.entidade_id, a.detalhes, a.ip
       FROM auditoria a LEFT JOIN kb_cards c ON c.id = a.card_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.id DESC LIMIT ?`).all(...args, Math.min(Number(limite) || 300, 1000))
     .map((r) => ({ ...r, detalhes: (() => { try { return JSON.parse(r.detalhes); } catch (_) { return null; } })() }));

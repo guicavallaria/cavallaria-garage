@@ -1,9 +1,9 @@
 // Rotas do kanban de OS (montadas em /api/kanban, atrás do login do app).
 // Etapa 1: leitura dos cards e da linha do tempo + sincronização manual.
 const express = require('express');
-const { sincronizarKanban, estadoSyncKanban } = require('./sync');
+const { sincronizarTodas, estadoSyncKanban } = require('./sync');
 const { adquirirLock, liberarLock } = require('../patio/lock');
-const { modoFonte, fonteConfigurada } = require('./fonte');
+const { modoFonte, fonteConfigurada, empresasAtivas } = require('./fonte');
 const { anoCurto } = require('../patio/veiculo');
 const acoes = require('./acoes');
 const linhaTempo = require('./linha-tempo');
@@ -55,6 +55,7 @@ const SQL_CARDS = `
 function resumoCard(c) {
   return {
     id: c.id,
+    empresa: c.empresa,
     os_numero: c.os_numero,
     placa: c.placa,
     marca: c.marca,
@@ -90,7 +91,13 @@ async function responder(res, fn, log) {
   }
 }
 
-function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente, intervaloMin = 2, storage = null, gerarPdf = null }) {
+function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente = null, criarClientes = null, intervaloMin = 2, storage = null, gerarPdf = null }) {
+  // Testes podem passar um cliente só (Cavallaria); o app passa os das duas empresas.
+  const clientesDaRodada = (o) => {
+    if (criarClientes) return criarClientes(o);
+    const client = criarCliente ? criarCliente(o) : null;
+    return client ? [{ empresa: 'cavallaria', client }] : [];
+  };
   // Geração de PDF injetável (testes usam um renderizador falso, sem Chrome).
   const gerarPdfVistoria = gerarPdf || ((execId, operador) => pdfs.naFila(() => pdfs.gerarPdfChecklist(db, storage, execId, { operador })));
   const chkHistorico = (execId, itemId) => {
@@ -126,7 +133,8 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       fases,
       cards,
       mecanicos,
-      sync: estadoSyncKanban(db, { intervaloMin }),
+      sync: estadoSyncKanban(db, { intervaloMin, empresas: criarClientes ? empresasAtivas() : null }),
+      empresas: criarClientes ? empresasAtivas() : ['cavallaria'],
       launch: launchFonte.estadoLaunch(db),
     });
   });
@@ -390,14 +398,14 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
 
   // "Sincronizar agora"
   r.post('/sync', async (req, res) => {
-    const client = criarCliente({ log });
-    if (!client) return res.status(503).json({ erro: 'ONMOTOR_USER/ONMOTOR_PASS não configurados' });
+    const clientes = clientesDaRodada({ log });
+    if (!clientes.length) return res.status(503).json({ erro: 'ONMOTOR_USER/ONMOTOR_PASS não configurados' });
     const dono = 'manual';
     if (!adquirirLock(db, dono, 600, Date.now(), 'kb_sync_lock')) {
       return res.status(409).json({ erro: 'Já existe uma sincronização em andamento' });
     }
     try {
-      const out = await sincronizarKanban(db, { client, origem: 'manual', broadcast, log });
+      const out = await sincronizarTodas(db, { clientes, origem: 'manual', broadcast, log });
       res.status(out.ok ? 200 : 502).json(out);
     } finally {
       liberarLock(db, dono, 'kb_sync_lock');

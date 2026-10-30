@@ -11,7 +11,7 @@ const { reconciliarAgendaHoje } = require('./patio/agenda');
 const { sincronizar: sincronizarPatio } = require('./patio/sync');
 const { criarScheduler } = require('./patio/scheduler');
 const kanbanRoutes = require('./kanban/routes');
-const { sincronizarKanban, JANELA_KANBAN } = require('./kanban/sync');
+const { sincronizarTodas, JANELA_KANBAN } = require('./kanban/sync');
 const kanbanFonte = require('./kanban/fonte');
 const kanbanStorage = require('./kanban/storage').criarStorage();
 if (!kanbanStorage.configurado) console.log('kanban: armazenamento de mídia desligado — ' + kanbanStorage.motivo);
@@ -114,7 +114,7 @@ app.use('/api/patio', patioRoutes.criarRouter({ db, broadcast, log: console.log 
 
 // ---------- Kanban de OS (cards criados a partir da Novidades do Onmotor) ----------
 app.use('/api/kanban', kanbanRoutes.criarRouter({
-  db, broadcast, log: console.log, criarCliente: kanbanFonte.criarCliente, intervaloMin: KANBAN_INTERVALO_MIN,
+  db, broadcast, log: console.log, criarClientes: kanbanFonte.criarClientes, intervaloMin: KANBAN_INTERVALO_MIN,
   storage: kanbanStorage,
 }));
 // A página fica em public/kanban/index.html (servida pelo static em /kanban/).
@@ -913,7 +913,7 @@ if (process.env.KANBAN_SYNC_ENABLED !== 'false') {
   if (!kanbanFonte.fonteConfigurada()) {
     console.log('kanban: ONMOTOR_USER/ONMOTOR_PASS não definidos — sync automático desligado');
   } else {
-    console.log(`kanban: fonte do Onmotor = ${kanbanFonte.modoFonte()}`);
+    console.log(`kanban: fonte do Onmotor = ${kanbanFonte.modoFonte()} (${kanbanFonte.empresasAtivas().join(', ')})`);
     criarScheduler({
       db,
       rotulo: 'kanban',
@@ -922,7 +922,7 @@ if (process.env.KANBAN_SYNC_ENABLED !== 'false') {
       tickMs: 10_000,
       folgaMs: 10_000, // rodadas a cada 110–120 s: OS nova vira card em até 2 min
       janela: JANELA_KANBAN,
-      sincronizar: (o) => sincronizarKanban(db, { ...o, client: kanbanFonte.criarCliente({ log: console.log }), broadcast }),
+      sincronizar: (o) => sincronizarTodas(db, { ...o, clientes: kanbanFonte.criarClientes({ log: console.log }), broadcast }),
     }).iniciar();
   }
 }
