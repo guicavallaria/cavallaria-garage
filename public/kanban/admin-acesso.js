@@ -97,7 +97,7 @@
       return esc(partes.join(' · '));
     };
     $('admAudLista').innerHTML = lista.length ? lista.map((a) => `<tr><td>${dataBR(a.quando)}</td><td>${esc(a.usuario_login || '—')}</td><td>${esc(a.operador || '')}</td>
-      <td>${esc(a.acao.replace(/_/g, ' '))}</td><td>${esc(a.os_numero || '')}</td><td>${detalhe(a.detalhes)}</td></tr>`).join('')
+      <td>${esc(a.acao.replace(/_/g, ' '))}</td><td>${a.empresa === 'awdyna' ? 'AWDYNA ' : ''}${esc(a.os_numero || '')}</td><td>${detalhe(a.detalhes)}</td></tr>`).join('')
       : '<tr><td colspan="6">Nada registrado com esse filtro.</td></tr>';
   }
 

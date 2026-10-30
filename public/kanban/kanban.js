@@ -16,6 +16,7 @@
   let faseAtiva = faseEscolhida || 1;
   let filtroMecanico = ler('s', 'kb.filtroMecanico') || '';
   let filtroFase = ler('s', 'kb.filtroFase') || '';
+  let filtroEmpresa = ler('s', 'kb.filtroEmpresa') || '';
   let modoBusca = 'ativos';
   let cardAberto = null; // { id, card } do painel
   let operador = ler('l', 'kb.operador') || '';
@@ -124,6 +125,7 @@
 
   // ---------- quadro ----------
   function passaFiltros(c) {
+    if (filtroEmpresa && c.empresa !== filtroEmpresa) return false;
     if (filtroMecanico === 'sem') { if (c.mecanico_id) return false; } else if (filtroMecanico && String(c.mecanico_id) !== filtroMecanico) return false;
     return true;
   }
@@ -133,13 +135,13 @@
     const velho = t.dias > VELHO_DIAS;
     const veiculo = [c.marca, c.modelo].filter(Boolean).join(' ');
     return `<div class="kb-card${velho ? ' kb-velho' : ''}" role="button" tabindex="0" draggable="true" data-id="${c.id}" data-fase="${c.fase_id}"
-        aria-label="OS ${esc(c.os_numero)}, ${esc(c.placa || '')}, ${t.texto} nesta fase">
+        aria-label="${c.empresa === 'awdyna' ? 'AWDYNA, ' : ''}OS ${esc(c.os_numero)}, ${esc(c.placa || '')}, ${t.texto} nesta fase">
       <div class="kb-card-l1">
         <span class="kb-os">OS ${esc(c.os_numero)}</span>
         ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''}
         <span class="kb-tempo" title="Tempo nesta fase">${t.texto}</span>
       </div>
-      <div class="kb-card-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}</div>
+      <div class="kb-card-l2">${c.empresa === 'awdyna' ? '<span class="kb-selo-empresa">AWDYNA</span> ' : ''}${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}</div>
       <div class="kb-card-l3">
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
@@ -188,6 +190,9 @@
     const selF = $('kbFiltroFase');
     selF.innerHTML = '<option value="">Todas</option>' + estado.fases.map((f) => `<option value="${f.id}">${f.id}. ${esc(f.nome)}</option>`).join('');
     selF.value = filtroFase;
+    // Filtro de empresa só aparece quando o kanban lê mais de uma
+    $('kbFiltroEmpresaRot').hidden = !(estado.empresas && estado.empresas.length > 1);
+    $('kbFiltroEmpresa').value = filtroEmpresa;
   }
 
   function renderSync() {
@@ -493,7 +498,7 @@
     const fase = estado.fases.find((f) => f.id === c.fase_id);
     const d = c.veiculo_detalhes || {};
     const linha = (rotulo, valor) => (valor ? `<dt>${rotulo}</dt><dd>${esc(valor)}</dd>` : '');
-    $('kbPainelTitulo').textContent = `OS ${c.os_numero}${c.placa ? ' · ' + c.placa : ''}`;
+    $('kbPainelTitulo').textContent = `${c.empresa === 'awdyna' ? 'AWDYNA · ' : ''}OS ${c.os_numero}${c.placa ? ' · ' + c.placa : ''}`;
 
     let acoes;
     if (c.arquivado_em) {
@@ -971,6 +976,11 @@
   });
 
   // ---------- filtros e abas ----------
+  $('kbFiltroEmpresa').addEventListener('change', (ev) => {
+    filtroEmpresa = ev.target.value;
+    guardar('s', 'kb.filtroEmpresa', filtroEmpresa);
+    render();
+  });
   $('kbFiltroMecanico').addEventListener('change', (ev) => {
     filtroMecanico = ev.target.value;
     guardar('s', 'kb.filtroMecanico', filtroMecanico);

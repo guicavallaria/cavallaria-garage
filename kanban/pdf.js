@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
-const EMPRESA = require('./empresa');
+const { dadosEmpresa } = require('./empresa');
 const { formatarBR } = require('./datas');
 const { ErroAcao } = require('./acoes');
 const chk = require('./checklists');
@@ -29,15 +29,16 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const json = (s, p = null) => { try { return s ? JSON.parse(s) : p; } catch (_) { return p; } };
 const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 
-let logoCache = null;
-function logoDataUrl() {
-  if (logoCache === null) {
+const logoCache = new Map();
+function logoDataUrl(empresa) {
+  const e = dadosEmpresa(empresa);
+  if (!logoCache.has(e.id)) {
     try {
-      const b = fs.readFileSync(path.join(__dirname, '..', EMPRESA.logo));
-      logoCache = `data:image/webp;base64,${b.toString('base64')}`;
-    } catch (_) { logoCache = ''; }
+      const b = fs.readFileSync(path.join(__dirname, '..', e.logo));
+      logoCache.set(e.id, `data:${e.logoMime};base64,${b.toString('base64')}`);
+    } catch (_) { logoCache.set(e.id, ''); }
   }
-  return logoCache;
+  return logoCache.get(e.id);
 }
 
 const CSS = `
@@ -117,10 +118,11 @@ function linhaInfo(celulas) {
 }
 
 function cabecalho(d) {
+  const emp = dadosEmpresa(d.card && d.card.empresa);
   return `<div class="cab">
-    ${d.logo ? `<img src="${d.logo}" alt="Cavallaria Garage">` : ''}
-    <div class="emp"><strong>${esc(EMPRESA.nome)}</strong><br>${esc(EMPRESA.slogan)}<br>${esc(EMPRESA.endereco)}<br>
-      ${esc(EMPRESA.telefone)} · ${esc(EMPRESA.email)}<br>CNPJ: ${esc(EMPRESA.cnpj)}</div>
+    ${d.logo ? `<img src="${d.logo}" alt="${esc(emp.nome)}">` : ''}
+    <div class="emp"><strong>${esc(emp.nome)}</strong><br>${esc(emp.slogan)}<br>${esc(emp.endereco)}<br>
+      ${esc(emp.telefone)} · ${esc(emp.email)}<br>CNPJ: ${esc(emp.cnpj)}</div>
   </div>`;
 }
 
@@ -166,7 +168,7 @@ function montarHtmlVistoria(d, { lado = 1100, qualidade = 0.72 } = {}) {
   <p class="itens">${itens}</p>
 
   <div class="fim">
-    <p>Este documento comprova o estado em que o veículo acima foi recebido pela ${esc(EMPRESA.nome)} na data e hora indicadas,
+    <p>Este documento comprova o estado em que o veículo acima foi recebido pela ${esc(dadosEmpresa(d.card && d.card.empresa).nome)} na data e hora indicadas,
     conforme as fotos e avarias registradas no momento da entrada.</p>
     <div class="ass">
       <div>Assinatura do cliente<br>${esc(d.card.cliente_nome || '')}</div>
@@ -358,7 +360,7 @@ async function dadosVistoria(db, storage, execId) {
     combustivel: itemComb ? (respostas.get(itemComb.id) || {}).opcao || '' : '',
     itensOpcoes: compPres ? compPres.opcoes : [],
     itensMarcados: itemPres ? (respostas.get(itemPres.id) || {}).marcados || [] : [],
-    logo: logoDataUrl(),
+    logo: logoDataUrl(card.empresa),
   };
 }
 
@@ -385,7 +387,7 @@ async function dadosRevisao(db, storage, execId, { operador = 'Sistema', agora =
   }
   for (const lista of anexos.values()) lista.sort((x, y) => String(x.quando).localeCompare(String(y.quando)));
   const entrada = dadosDaEntrada(db, b.card.id);
-  return { ...b, anexos, pecas: chk.listarPecas(db, b.exec.id), km: entrada.km, tanque: entrada.tanque, logo: logoDataUrl() };
+  return { ...b, anexos, pecas: chk.listarPecas(db, b.exec.id), km: entrada.km, tanque: entrada.tanque, logo: logoDataUrl(b.card.empresa) };
 }
 
 // ---------- gerar e guardar ----------
