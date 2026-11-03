@@ -245,3 +245,60 @@ test('sem fonte configurada a rodada falha com mensagem clara', async () => {
   assert.equal(r.ok, false);
   assert.match(r.erro, /não configurada/);
 });
+
+test('OS inativada no Onmotor (saiu da Novidades sem finalizar): arquiva sozinho depois de 10 min; volta se a OS reaparecer', async () => {
+  const db = bancoDeTeste();
+  const client = cliente();
+  await sync(db, client);
+  const original = client.html;
+  client.html = nov.remover(original, ABERTA.osId);
+  client.osHtml = async (id) => { client.chamadasOS.push(id); return '<html><body>OS sem finalização</body></html>'; };
+
+  await sync(db, client);
+  let c = cardDaOS(db, ABERTA.osNumber);
+  assert.ok(c.os_sumiu_em);
+  assert.equal(c.arquivado_em, null, 'leitura incompleta de uma rodada não arquiva nada');
+
+  relogio += 5 * 60_000;
+  await sync(db, client);
+  assert.equal(cardDaOS(db, ABERTA.osNumber).arquivado_em, null, 'antes de 10 min continua no quadro');
+
+  relogio += 6 * 60_000;
+  const r = await sync(db, client);
+  c = cardDaOS(db, ABERTA.osNumber);
+  assert.ok(c.arquivado_em, 'mais de 10 min fora da Novidades e sem finalização: OS inativada');
+  assert.ok(c.os_inativada_em);
+  assert.equal(c.arquivado_por, 'Sistema');
+  assert.equal(r.arquivados, 1);
+  assert.match(eventos(db, c.id).at(-1).texto, /^OS inativada no Onmotor \(saiu da Novidades sem ser finalizada\) — arquivado automaticamente/);
+
+  // reativada: a OS volta para a Novidades e o card volta para o quadro, na mesma fase
+  client.html = original;
+  await sync(db, client);
+  c = cardDaOS(db, ABERTA.osNumber);
+  assert.equal(c.arquivado_em, null);
+  assert.equal(c.os_inativada_em, null);
+  assert.equal(c.os_sumiu_em, null);
+  assert.match(eventos(db, c.id).at(-1).texto, /reativada/);
+});
+
+test('OS inativada: card desarquivado à mão antes (bloqueio) não é arquivado de novo; OS finalizada não conta como inativada', async () => {
+  const db = bancoDeTeste();
+  const client = cliente();
+  await sync(db, client);
+  const outra = LINHAS.filter((l) => !l.etapas.finalizado)[1];
+  db.prepare('UPDATE kb_cards SET auto_arquivar_bloqueado = 1 WHERE os_numero = ?').run(String(ABERTA.osNumber));
+  const paginaFinalizada = `<html><i class="fa fa-check-circle" data-id="1" data-field="data_de_finalizacao" data-value="1" title="Finalizado<br>22/10/26 às 17:40"></i></html>`;
+  client.html = nov.remover(nov.remover(client.html, ABERTA.osId), outra.osId);
+  client.osHtml = async (id) => (id === outra.osId ? paginaFinalizada : '<html></html>');
+  await sync(db, client);
+  relogio += 11 * 60_000;
+  await sync(db, client);
+  const bloqueado = cardDaOS(db, ABERTA.osNumber);
+  assert.equal(bloqueado.arquivado_em, null);
+  assert.ok(bloqueado.os_sumiu_em, 'continua com o aviso "Saiu da Novidades"');
+  const fin = cardDaOS(db, outra.osNumber);
+  assert.ok(fin.os_finalizada_em);
+  assert.equal(fin.os_inativada_em, null);
+  assert.equal(fin.arquivado_em, null, 'finalizada fora da fase 9 continua no quadro, como antes');
+});

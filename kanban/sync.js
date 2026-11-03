@@ -7,7 +7,8 @@
 //   - OS conhecida com dados diferentes (hash)   → atualiza veículo/cliente/etapas
 //   - OS conhecida que passou a finalizada       → marca "OS finalizada no Onmotor"
 //   - card na fase 9 + OS finalizada             → arquiva sozinho
-//   - card ativo que sumiu da Novidades          → confere na página da OS
+//   - card ativo que sumiu da Novidades          → confere na página da OS: finalizada → marca;
+//     não finalizada há 10 min → OS inativada no Onmotor → arquiva sozinho (volta se a OS reaparecer)
 // Na PRIMEIRA leitura de cada empresa (carga inicial) todas as OS abertas viram card e a fase
 // sai da etapa do Onmotor; depois disso a fase só muda pela mão do operador.
 //
@@ -34,6 +35,7 @@ const EMPRESA_PADRAO = 'cavallaria';
 const LIMITE_DETALHES = 15;        // cada detalhe = página da OS (~0,4–1 MB) + modal do veículo
 const LIMITE_SUMIDAS = 5;          // OS sumidas conferidas por rodada
 const REVERIFICAR_SUMIDA_MIN = 60; // uma OS sumida e não finalizada é conferida de novo a cada 1 h
+const CONFIRMAR_INATIVA_MIN = 10;  // fora da Novidades e sem finalização há 10 min = OS inativada
 const MAX_TENTATIVAS_DETALHE = 10;
 
 // Janela do job: segunda a sexta, 07:00–19:00 (decisão de 23/10/2026).
@@ -140,6 +142,15 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga, empresa = EMPRESA_PA
 
     r.vistos.add(card.id);
     db.prepare('UPDATE kb_cards SET os_visto_em = ?, os_sumiu_em = NULL WHERE id = ?').run(agora, card.id);
+    // OS inativada que voltou para a Novidades (reativada no Onmotor): o card volta para o quadro.
+    if (card.os_inativada_em) {
+      const volta = card.arquivado_em && card.arquivado_motivo === 'automatico';
+      db.prepare(`UPDATE kb_cards SET os_inativada_em = NULL${volta ? ", arquivado_em = NULL, arquivado_por = NULL, arquivado_motivo = NULL" : ''}, atualizado_em = ? WHERE id = ?`).run(agora, card.id);
+      if (volta) {
+        f.evento(card.id, 'desarquivado', `OS voltou para a Novidades do Onmotor (reativada) — card desarquivado em ${formatarBR(agora)}`, { motivo: 'os_reativada' }, agora);
+        r.reativados = (r.reativados || 0) + 1;
+      }
+    }
     // Início da OS (etapa mais antiga): preenche ou recua; muda o período dos relatórios Launch → revincula.
     const inicio = inicioDaOS(l);
     if (inicio && (!card.os_inicio_em || inicio < card.os_inicio_em)) {
@@ -200,15 +211,21 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
       ORDER BY COALESCE(os_verificada_em, '') ASC, id ASC`).all(empresa)
     .filter((c) => !vistos.has(c.id));
   let finalizados = 0;
+  let inativados = 0;
   let conferidas = 0;
-  const limiteMs = Date.parse(agora) - REVERIFICAR_SUMIDA_MIN * 60_000;
+  const agoraMs = Date.parse(agora);
+  const limiteMs = agoraMs - REVERIFICAR_SUMIDA_MIN * 60_000;
   for (const card of candidatos) {
     if (!card.os_sumiu_em) {
+      card.os_sumiu_em = agora;
       db.prepare('UPDATE kb_cards SET os_sumiu_em = ? WHERE id = ?').run(agora, card.id);
       f.onmotor({ osNumero: card.os_numero, osId: card.os_id_interno, tipo: 'sumiu', payload: { os_numero: card.os_numero }, hash: 'sumiu', agora });
     }
     if (conferidas >= limite) continue;
-    if (card.os_verificada_em && Date.parse(card.os_verificada_em) > limiteMs) continue;
+    // Já passou o prazo de confirmação e a última conferência foi antes dele? Confere de novo agora.
+    const confirmaEm = Date.parse(card.os_sumiu_em) + CONFIRMAR_INATIVA_MIN * 60_000;
+    const confirmar = agoraMs >= confirmaEm && (!card.os_verificada_em || Date.parse(card.os_verificada_em) < confirmaEm);
+    if (!confirmar && card.os_verificada_em && Date.parse(card.os_verificada_em) > limiteMs) continue;
     conferidas++;
     try {
       const os = extrairDadosOS(await client.osHtml(card.os_id_interno));
@@ -217,12 +234,20 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
         const atual = db.prepare('SELECT * FROM kb_cards WHERE id = ?').get(card.id);
         registrarFinalizacao(db, f, atual, spParaUtc(os.finalizadaEm) || agora, agora);
         finalizados++;
+      } else if (agoraMs >= confirmaEm && !card.auto_arquivar_bloqueado) {
+        // Fora da Novidades sem ser finalizada = OS inativada no Onmotor: o card sai do quadro.
+        db.prepare(`UPDATE kb_cards SET os_inativada_em = ?, arquivado_em = ?, arquivado_por = 'Sistema', arquivado_motivo = 'automatico',
+            atualizado_em = ? WHERE id = ?`).run(agora, agora, agora, card.id);
+        f.evento(card.id, 'arquivado', `OS inativada no Onmotor (saiu da Novidades sem ser finalizada) — arquivado automaticamente em ${formatarBR(agora)}`,
+          { motivo: 'os_inativada' }, agora);
+        registrarAuditoria(db, { operador: 'Sistema', acao: 'card_arquivado', cardId: card.id, entidade: 'cards', entidadeId: card.id, detalhes: { origem: 'os_inativada' }, quando: agora });
+        inativados++;
       }
     } catch (e) {
       avisos.push(`OS ${card.os_numero} saiu da Novidades e não deu para conferir: ${e.message}`);
     }
   }
-  return { finalizados };
+  return { finalizados, inativados };
 }
 
 // Regra do prompt: fase 9 + OS finalizada no Onmotor → arquiva sozinho. Em outra fase, não.
@@ -309,7 +334,7 @@ async function sincronizarKanban(db, { client, empresa = EMPRESA_PADRAO, agoraFn
     })();
 
     const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos, empresa });
-    const arquivados = arquivarFinalizadosNaFase9(db, agora);
+    const arquivados = arquivarFinalizadosNaFase9(db, agora) + sumidas.inativados;
     const detalhes = await enriquecerDetalhes(db, client, { agora, limite: limiteDetalhes, avisos: r.avisos, empresa });
 
     const finalizados = r.finalizados + sumidas.finalizados;
