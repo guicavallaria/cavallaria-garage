@@ -50,10 +50,11 @@ const brCurto = (iso) => { const d = new Date(iso); if (isNaN(d)) return ''; con
 function classificar(empresa, finalizadoBr, reg) {
   const fin = isoDeBr(finalizadoBr);
   if (!fin || fin < CHECKIN_DESDE) return null;
-  if (!reg) return { s: 'semcard' };
+  const noAr = KANBAN_NO_AR[empresa] || KANBAN_NO_AR.cavallaria;
+  // sem card e finalizada antes de a empresa entrar no kanban (ex.: AWDYNA #717, 27/10)
+  if (!reg) return fin < noAr ? { s: 'antes' } : { s: 'semcard' };
   if (reg.checkin === 'finalizado') return { s: 'ok', em: brCurto(reg.finalizado_em), por: reg.feito_por || '' };
   if (reg.checkin === 'em_andamento') return { s: 'andamento', por: reg.feito_por || '' };
-  const noAr = KANBAN_NO_AR[empresa] || KANBAN_NO_AR.cavallaria;
   if (reg.entrada_em && reg.entrada_em.slice(0, 10) < noAr) return { s: 'antes' };
   return { s: 'sem' };
 }

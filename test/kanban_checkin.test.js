@@ -69,4 +69,6 @@ test('check-in: classificação para os relatórios', () => {
   assert.equal(classificar('cavallaria', '28/10/2026', { checkin: null, entrada_em: '2026-10-26T10:00:00.000Z' }).s, 'sem');
   // AWDYNA entrou no kanban em 30/10
   assert.equal(classificar('awdyna', '30/10/2026', { checkin: null, entrada_em: '2026-10-27T10:00:00.000Z' }).s, 'antes');
+  assert.equal(classificar('awdyna', '27/10/2026', undefined).s, 'antes');   // finalizada antes da AWDYNA entrar no kanban
+  assert.equal(classificar('awdyna', '31/10/2026', undefined).s, 'semcard');
 });
