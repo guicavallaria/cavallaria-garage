@@ -101,7 +101,7 @@ tr:hover td{background:var(--bg2)}
 </div>
 
 <div id="os" class="pane">
-  <p class="note">Conferência de preenchimento das OS da semana: quilometragem, fotos anexadas e datas.</p>
+  <p class="note">Conferência de preenchimento das OS da semana: quilometragem, check-in do kanban (fotos anexadas, nas semanas antes de 26/10/2026) e datas.</p>
   <div class="wrap-tbl"><table id="os-table"></table></div>
 </div>
 
@@ -119,7 +119,15 @@ function chkKm(o){
     ? `<span class="chk ok" title="Quilometragem coerente"><span class="ico">✓</span>${fmtKm(o.km)}</span>`
     : `<span class="chk bad" title="${o.kmMot||'Km suspeita'}"><span class="ico">!</span>${(String(o.km)==='0'||!o.km)?'sem km':fmtKm(o.km)}</span>`;
 }
+// Desde 26/10/2026 a conferência é o CHECK-IN do kanban (vistoria de entrada); antes, as fotos do Onmotor.
+const CK_TXT = { andamento:'check-in incompleto', sem:'sem check-in', semcard:'sem card no kanban' };
 function chkFoto(o){
+  const c=o.checkin;
+  if(c){
+    if(c.s==='ok') return `<span class="chk ok" title="Vistoria de entrada finalizada${c.por?' por '+c.por:''}"><span class="ico">✓</span>check-in ${c.em||''}</span>`;
+    if(c.s==='antes') return `<span class="chk" style="opacity:.7" title="Carro já estava na oficina quando o kanban entrou no ar">— antes do kanban</span>`;
+    return `<span class="chk bad" title="Vistoria de entrada não finalizada no kanban"><span class="ico">!</span>${CK_TXT[c.s]||'sem check-in'}</span>`;
+  }
   return o.fotosOk
     ? `<span class="chk ok" title="${o.fotos} foto(s) anexada(s)"><span class="ico">✓</span>${o.fotos} 📷</span>`
     : `<span class="chk bad" title="Nenhuma foto anexada"><span class="ico">!</span>sem foto</span>`;
@@ -162,7 +170,7 @@ function renderOS(s){
   const t=document.getElementById('os-table');
   const arr=osFiltradas(s);
   if(!arr.length){ t.innerHTML=''; return; }
-  let h='<thead><tr><th>Empresa</th><th>OS</th><th>Cliente</th><th>Veículo</th><th>Km</th><th>Fotos</th><th>Finalizado</th><th>Retirada</th><th>Faturado</th></tr></thead><tbody>';
+  let h='<thead><tr><th>Empresa</th><th>OS</th><th>Cliente</th><th>Veículo</th><th>Km</th><th>Check-in · Fotos</th><th>Finalizado</th><th>Retirada</th><th>Faturado</th></tr></thead><tbody>';
   [...arr].sort((a,b)=>a.os-b.os).forEach(o=>{
     h+=`<tr>
       <td>${empBadge(o.empresa)}</td>

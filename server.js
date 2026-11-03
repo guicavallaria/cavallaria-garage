@@ -87,6 +87,10 @@ app.post('/api/posvendas/upload', express.text({ limit: '30mb', type: '*/*' }), 
   }
 });
 
+// ---------- Kanban: status do check-in por OS (relatórios semanais do PC) ----------
+// Mesmo esquema do upload acima: antes da sessão, protegido pelo token do pós-vendas.
+app.get('/api/kanban/checkin', require('./kanban/checkin').rota({ db, token: POSVENDAS_UPLOAD_TOKEN }));
+
 // ---------- Kanban: links públicos com validade (vídeo do QR no PDF, PDF para o cliente) ----------
 // Fica ANTES do login: quem abre é o cliente. O app confere validade/revogação e redireciona
 // para uma URL assinada de 15 min do bucket.
@@ -131,6 +135,14 @@ app.get('/api/posvendas/semana/:arquivo', (req, res) => {
   if (!/^semana-\d{4}-\d{2}-\d{2}$/.test(nome)) return res.status(400).json({ erro: 'invalido' });
   const s = posvendas.lerSemanaUnificada(nome);
   if (!s) return res.status(404).json({ erro: 'nao encontrada' });
+  // check-in da vistoria de entrada, lido ao vivo do kanban (substitui as fotos do Onmotor)
+  const ck = require('./kanban/checkin');
+  const reg = {};
+  ck.statusCheckin(db).forEach(r => { reg[r.empresa + ':' + r.os] = r; });
+  (s.os || []).forEach(o => {
+    const emp = o.empresa === 'AWDYNA' ? 'awdyna' : 'cavallaria';
+    o.checkin = ck.classificar(emp, o.finalizado, reg[emp + ':' + o.os]);
+  });
   res.json(s);
 });
 
