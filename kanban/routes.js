@@ -15,6 +15,7 @@ const launchFonte = require('./launch-fonte');
 const arquivos = require('./arquivos');
 const perfis = require('../acesso/perfis');
 const auditoria = require('../acesso/auditoria');
+const fluxo = require('./fluxo');
 
 // Login de mecânico assina tudo com o próprio nome: o operador (e o "feito por" do checklist)
 // vem da sessão, nunca do que o navegador mandou. Os demais perfis são contas de setor,
@@ -45,7 +46,11 @@ const SQL_CARDS = `
          (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL AND md.tipo <> 'pdf') AS qtd_midias,
          (SELECT x.status FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
             WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status,
-         (SELECT COUNT(*) FROM launch_relatorios lr WHERE lr.card_id = c.id AND lr.removido_em IS NULL) AS qtd_launch
+         (SELECT COUNT(*) FROM launch_relatorios lr WHERE lr.card_id = c.id AND lr.removido_em IS NULL) AS qtd_launch,
+         (SELECT MAX(e.criado_em) FROM kb_eventos e WHERE e.card_id = c.id AND e.removido_em IS NULL) AS ultimo_evento_em,
+         (SELECT o.pecas FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pecas,
+         (SELECT o.pdf_midia_id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pdf,
+         (SELECT o.decisao FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_decisao
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -76,6 +81,11 @@ function resumoCard(c) {
     qtd_midias: c.qtd_midias || 0,
     vistoria_status: c.vistoria_status || null, // null | em_andamento | finalizado
     qtd_launch: c.qtd_launch || 0,
+    ultimo_evento_em: c.ultimo_evento_em || null,
+    pecas_prazo_dias: c.pecas_prazo_dias ?? null,
+    pecas_prazo_em: c.pecas_prazo_em || null,
+    // última solicitação de orçamento (peças pedidas, PDF, decisão) — telas do setor de peças e da aprovação
+    orcamento: c.orc_pecas ? { pecas: json(c.orc_pecas) || [], pdf_url: c.orc_pdf ? arquivos.caminhoAbrir(c.orc_pdf) : null, decisao: c.orc_decisao || null } : null,
   };
 }
 
@@ -122,6 +132,8 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
 
   r.get('/estado', (req, res) => {
     const fases = db.prepare('SELECT id, nome FROM kb_fases ORDER BY ordem').all();
+    const usuario = req.session && req.session.usuario;
+    const papel = fluxo.papelDoUsuario(db, usuario);
     const cards = db.prepare(`${SQL_CARDS} WHERE c.arquivado_em IS NULL ORDER BY c.fase_desde ASC`).all().map(resumoCard);
     const mecanicos = db.prepare('SELECT id, nome FROM kb_mecanicos WHERE removido_em IS NULL ORDER BY ordem, nome').all();
     res.json({
@@ -136,8 +148,25 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       sync: estadoSyncKanban(db, { intervaloMin, empresas: criarClientes ? empresasAtivas() : null }),
       empresas: criarClientes ? empresasAtivas() : ['cavallaria'],
       launch: launchFonte.estadoLaunch(db),
+      eu: { papel, papel_nome: fluxo.PAPEIS[papel] },
+      fluxo: {
+        setor_pecas: fluxo.FASES_SETOR_PECAS,
+        aprovacao: fluxo.FASE.APROVACAO,
+        // para a tela montar o "Mover para…" só com o que este login pode fazer
+        destinos: Object.fromEntries(fases.map((f) => [f.id, fluxo.destinosPermitidos(papel, f.id, fases.map((x) => x.id))])),
+        exigencias: Object.fromEntries(fases.map((o) => [o.id, Object.fromEntries(fases.filter((d) => d.id !== o.id)
+          .map((d) => [d.id, fluxo.exigencias(o.id, d.id)]).filter(([, e]) => e.length))])),
+      },
     });
   });
+
+  const orcamentosDoCard = (cardId) => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 10').all(cardId)
+    .map((o) => ({
+      id: o.id, pecas: json(o.pecas) || [], solicitado_por: o.solicitado_por, solicitado_em: o.solicitado_em,
+      pdf_url: o.pdf_midia_id ? arquivos.caminhoAbrir(o.pdf_midia_id) : null, enviado_por: o.enviado_por, enviado_em: o.enviado_em,
+      decisao: o.decisao, decisao_obs: o.decisao_obs, decidido_por: o.decidido_por, decidido_em: o.decidido_em,
+      via_cliente_url: o.via_cliente_midia_id ? arquivos.caminhoAbrir(o.via_cliente_midia_id) : null,
+    }));
 
   r.get('/cards/:id', async (req, res) => {
     const c = db.prepare(`${SQL_CARDS} WHERE c.id = ?`).get(Number(req.params.id));
@@ -164,6 +193,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         arquivado_por: c.arquivado_por,
         criado_em: c.criado_em,
       },
+      orcamentos: orcamentosDoCard(c.id),
       eventos,
     });
   });
@@ -360,7 +390,10 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
 
   r.post('/cards/:id/mover', (req, res) => responder(res, () => {
     const b = req.body || {};
-    const out = acoes.moverCard(db, req.params.id, { faseId: b.fase_id, faseAtual: b.fase_atual, operador: b.operador });
+    const out = acoes.moverCard(db, req.params.id, {
+      faseId: b.fase_id, faseAtual: b.fase_atual, operador: b.operador, papel: fluxo.papelDoUsuario(db, req.session && req.session.usuario),
+      pecas: b.pecas, pdfMidiaId: b.pdf_midia_id, decisao: b.decisao, observacao: b.observacao, prazoDias: b.prazo_dias,
+    });
     if (out.movido) broadcast('kanban');
     return { ok: true, movido: out.movido, arquivado: out.arquivado, card: porId(out.card.id) };
   }, log));
@@ -384,6 +417,29 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const c = acoes.definirMecanico(db, req.params.id, { mecanicoId: b.mecanico_id, operador: b.operador });
     broadcast('kanban');
     return { ok: true, card: porId(c.id) };
+  }, log));
+
+  // ---------- setor de orçamento e peças (kanban/fluxo.js) ----------
+  // Peças para a pergunta "o que orçar?": as dos checklists do card (marcadas "Necessita troca" ou
+  // digitadas na revisão) e as da última solicitação (devolução da aprovação).
+  r.get('/cards/:id/pecas-sugeridas', (req, res) => responder(res, () => {
+    const card = db.prepare('SELECT id FROM kb_cards WHERE id = ?').get(Number(req.params.id));
+    if (!card) throw new acoes.ErroAcao(404, 'Card não encontrado');
+    const doChecklist = db.prepare(`SELECT p.id, COALESCE(NULLIF(TRIM(p.descricao), ''), i.texto) AS descricao, p.origem, m.nome AS checklist
+        FROM kb_checklist_pecas p
+        JOIN kb_checklist_execucoes x ON x.id = p.execucao_id
+        JOIN kb_checklist_modelos m ON m.id = x.modelo_id
+        LEFT JOIN kb_checklist_itens i ON i.id = p.item_id
+        WHERE x.card_id = ? AND p.removido_em IS NULL ORDER BY x.id, p.ordem`).all(card.id).filter((p) => p.descricao);
+    const ultimo = db.prepare('SELECT pecas FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id);
+    return { checklist: doChecklist, ultima_solicitacao: ultimo ? json(ultimo.pecas) || [] : [] };
+  }, log));
+
+  // PDF do orçamento ou da nova via do cliente: sobe antes do "mover", que o usa pelo midia_id.
+  r.post('/cards/:id/orcamento-pdf', express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '31mb' }), (req, res) => responder(res, async () => {
+    const op = acoes.validarOperador(req.query.operador);
+    if (fluxo.papelDoUsuario(db, req.session && req.session.usuario) === 'registro') throw new acoes.ErroAcao(403, fluxo.mensagemSemPermissao('registro'));
+    return arquivos.salvarPdfDoCard(db, storage, { cardId: req.params.id, tipo: String(req.query.tipo || ''), bytes: Buffer.isBuffer(req.body) ? req.body : null, operador: op });
   }, log));
 
   r.get('/busca', (req, res) => {

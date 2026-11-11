@@ -42,7 +42,7 @@ function validarSenha(senha, login) {
 
 const publico = (u) => u && ({
   id: u.id, login: u.login, nome: u.nome, perfil: u.perfil, perfil_nome: (PERFIS[u.perfil] || {}).nome || u.perfil,
-  trocar_senha: Boolean(u.trocar_senha), kb_mecanico_id: u.kb_mecanico_id, ativo: Boolean(u.ativo),
+  trocar_senha: Boolean(u.trocar_senha), kb_mecanico_id: u.kb_mecanico_id, ativo: Boolean(u.ativo), kb_papel: u.kb_papel || 'registro',
   criado_em: u.criado_em, criado_por: u.criado_por, ultimo_login_em: u.ultimo_login_em,
 });
 
@@ -123,7 +123,17 @@ function definirAtivo(db, id, ativo, { porId = null, agora = agoraUtc() } = {}) 
   return publico(db.prepare('SELECT * FROM usuarios WHERE id = ?').get(u.id));
 }
 
+// Papel no kanban (quem move cards — kanban/fluxo.js). Vale na próxima ação da pessoa, sem relogar.
+const PAPEIS_KANBAN = ['total', 'orcamento', 'aprovacao', 'registro'];
+function definirPapel(db, id, papel, { agora = agoraUtc() } = {}) {
+  if (!PAPEIS_KANBAN.includes(papel)) throw new ErroUsuario(400, 'Papel no kanban inválido');
+  const u = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(Number(id));
+  if (!u) throw new ErroUsuario(404, 'Usuário não encontrado');
+  db.prepare('UPDATE usuarios SET kb_papel = ?, atualizado_em = ? WHERE id = ?').run(papel, agora, u.id);
+  return publico(db.prepare('SELECT * FROM usuarios WHERE id = ?').get(u.id));
+}
+
 module.exports = {
   ErroUsuario, CONTAS_COMBINADAS, gerarSenha, validarSenha, listar, algumAtivo, criar, criarContasCombinadas, autenticar,
-  trocarSenha, resetarSenha, definirAtivo, publico,
+  trocarSenha, resetarSenha, definirAtivo, definirPapel, publico,
 };

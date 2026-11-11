@@ -1,7 +1,9 @@
 // PDFs (checklists e Launch) abrem por uma rota do app, não direto pela URL assinada:
 // assim cada download fica no log de auditoria (seção 12) e a URL assinada de 15 min só é
 // criada na hora do clique.
+const crypto = require('crypto');
 const { ErroAcao } = require('./acoes');
+const MAX_PDF = 30 * 1024 * 1024;
 
 const caminhoAbrir = (midiaId) => `/api/kanban/midias/${midiaId}/abrir`;
 
@@ -11,6 +13,8 @@ function nomeDoPdf(db, midiaId) {
   if (p) return `${p.tipo.replace(/_/g, '-')}${p.via === 'unica' ? '' : `-${p.via}`}-v${p.versao}.pdf`;
   const l = db.prepare('SELECT nome_arquivo FROM launch_relatorios WHERE midia_id = ?').get(Number(midiaId));
   if (l) return l.nome_arquivo;
+  const m = db.prepare('SELECT legenda FROM kb_midias WHERE id = ?').get(Number(midiaId));
+  if (m && /\.pdf$/i.test(m.legenda || '')) return m.legenda; // orçamento / via do cliente
   return `documento-${midiaId}.pdf`;
 }
 
@@ -49,4 +53,26 @@ async function urlParaBaixar(db, storage, midiaId) {
   return { url, midia: m };
 }
 
-module.exports = { caminhoAbrir, caminhoBaixar, nomeDoPdf, nomeDaMidia, urlDoPdf, urlParaBaixar };
+// PDF do orçamento (Cauã) ou da nova via do cliente (Luan, aprovação parcial). Vai da memória do
+// servidor direto para o bucket e fica ligado ao card; só aparece na linha do tempo quando o card
+// muda de fase com ele (o evento de fase leva o PDF).
+const TIPOS_PDF_CARD = { orcamento: 'orcamento', via_cliente: 'via-cliente' };
+async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, agora = new Date().toISOString() }) {
+  if (!storage || !storage.configurado) throw new ErroAcao(503, 'Armazenamento de mídia não configurado');
+  if (!TIPOS_PDF_CARD[tipo]) throw new ErroAcao(400, 'Tipo de PDF inválido');
+  if (!bytes || !bytes.length) throw new ErroAcao(400, 'PDF vazio');
+  if (bytes.length > MAX_PDF) throw new ErroAcao(413, 'PDF grande demais (máximo 30 MB)');
+  if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new ErroAcao(415, 'O arquivo precisa ser um PDF');
+  const card = db.prepare('SELECT id, os_numero, arquivado_em FROM kb_cards WHERE id = ?').get(Number(cardId));
+  if (!card) throw new ErroAcao(404, 'Card não encontrado');
+  if (card.arquivado_em) throw new ErroAcao(409, 'Card arquivado: desarquive para anexar');
+  const d = new Date(agora);
+  const chave = `orcamentos/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.pdf`;
+  await storage.enviar(chave, bytes, 'application/pdf');
+  const id = db.prepare(`INSERT INTO kb_midias (cliente_id, chave_objeto, tipo, mime, tamanho_bytes, card_id, status, autor_nome, criado_em, enviado_em)
+      VALUES (?, ?, 'pdf', 'application/pdf', ?, ?, 'enviado', ?, ?, ?)`).run(`${tipo}-${crypto.randomUUID()}`, chave, bytes.length, card.id, operador, agora, agora).lastInsertRowid;
+  db.prepare('UPDATE kb_midias SET legenda = ? WHERE id = ?').run(`${TIPOS_PDF_CARD[tipo]}-os${card.os_numero}-${id}.pdf`, id);
+  return { midia_id: id };
+}
+
+module.exports = { caminhoAbrir, caminhoBaixar, nomeDoPdf, nomeDaMidia, urlDoPdf, urlParaBaixar, salvarPdfDoCard };

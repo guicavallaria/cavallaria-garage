@@ -233,8 +233,9 @@ test('mecânico: só o kanban, assina com o próprio nome e não faz ações de 
     const t = await n.ir(`/api/kanban/cards/${card.id}/textos`, { json: { texto: 'Trocado o filtro', operador: 'Outra Pessoa' } });
     assert.equal(t.status, 200);
     assert.equal(db.prepare('SELECT operador_nome FROM kb_eventos WHERE id = ?').get(t.corpo.evento_id).operador_nome, 'Edson');
-    const m = await n.ir(`/api/kanban/cards/${card.id}/mover`, { json: { fase_id: 3, fase_atual: card.fase_id, operador: 'X' } });
-    assert.equal(m.status, 200);
+    // mecânico registra no card, mas não move entre fases (papel "registro")
+    const m = await n.ir(`/api/kanban/cards/${card.id}/mover`, { json: { fase_id: 7, fase_atual: card.fase_id, operador: 'X' } });
+    assert.equal(m.status, 403);
     assert.equal((await n.ir(`/api/kanban/cards/${card.id}/arquivar`, { json: { operador: 'Edson' } })).status, 403);
     assert.equal((await n.ir(`/api/kanban/cards/${card.id}/links`)).status, 403);
     assert.equal((await n.ir('/api/kanban/admin/mecanicos')).status, 403);
@@ -242,7 +243,7 @@ test('mecânico: só o kanban, assina com o próprio nome e não faz ações de 
     // auditoria: login + ações com usuário, operador e card
     const log = auditoria.listar(db, {});
     const acoesDoCard = log.filter((a) => a.card_id === card.id && a.usuario_login === 'edson').map((a) => a.acao);
-    assert.deepEqual(acoesDoCard.sort(), ['fase_alterada', 'texto_postado']);
+    assert.deepEqual(acoesDoCard.sort(), ['texto_postado']); // o mover recusado (403) não vira ação
     assert.ok(log.some((a) => a.acao === 'login' && a.usuario_login === 'edson'));
     assert.equal(log.find((a) => a.acao === 'texto_postado').operador, 'Edson');
     assert.ok(!JSON.stringify(log).includes('Trocado o filtro')); // nada do conteúdo vai para a auditoria

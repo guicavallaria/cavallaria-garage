@@ -31,12 +31,13 @@ const LINHAS = nov.linhas();
 const ABERTA = LINHAS.find((l) => !l.etapas.finalizado && l.etapas.entrada && !l.etapas.emExecucao);
 const FINALIZADA = LINHAS.find((l) => l.etapas.finalizado);
 
-test('migração 003: cria as 9 fases na ordem e é reversível', () => {
+test('migrações 003 e 014: as 10 fases na ordem (Aguardando Peças depois de Aquisição) e reversíveis', () => {
   const db = bancoDeTeste();
   const fases = db.prepare('SELECT id, nome FROM kb_fases ORDER BY ordem').all();
-  assert.equal(fases.length, 9);
+  assert.equal(fases.length, 10);
   assert.equal(fases[0].nome, 'Aguardando Entrada');
-  assert.equal(fases[8].nome, 'Veículo Pronto / Aguardando Retirada');
+  assert.deepEqual(fases.slice(4, 7).map((f) => [f.id, f.nome]), [[5, 'Aquisição de Peças'], [10, 'Aguardando Peças'], [6, 'Aguardando Agendamento']]);
+  assert.equal(fases[9].nome, 'Veículo Pronto / Aguardando Retirada');
   const { listar } = require('../migrations');
   const kanban = listar(require('path').join(__dirname, '..', 'migrations')).slice(2).reverse();
   assert.deepEqual(reverter(db, undefined, kanban.length), kanban);

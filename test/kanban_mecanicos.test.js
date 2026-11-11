@@ -82,8 +82,8 @@ test('o card usa a lista do kanban: escolha manual, ou o mecânico do pátio tra
 test('lista de nomes do aparelho: mecânicos do kanban primeiro, sem repetir o nome completo do mesmo mecânico', () => {
   const db = banco();
   const c = db.prepare('SELECT * FROM kb_cards ORDER BY id LIMIT 1').get();
-  acoes.moverCard(db, c.id, { faseId: 3, operador: 'Edson Antonio Benin Junior' });
-  acoes.moverCard(db, c.id, { faseId: 4, operador: 'Luan' });
+  acoes.moverCard(db, c.id, { faseId: 7, operador: 'Edson Antonio Benin Junior' });
+  acoes.moverCard(db, c.id, { faseId: 8, operador: 'Luan' });
   const ops = acoes.operadoresConhecidos(db);
   assert.deepEqual(ops.slice(0, 5), ['Edson', 'Matheus', 'Ronaldy', 'Luiz', 'Iago']);
   assert.ok(ops.includes('Luan'));

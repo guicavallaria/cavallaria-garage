@@ -4,6 +4,7 @@
 // Perfis (só Gestor arquiva/desarquiva) entram na Etapa 7, com os logins individuais.
 const { formatarBR } = require('./datas');
 const { arquivarFinalizadosNaFase9 } = require('./sync');
+const fluxo = require('./fluxo');
 
 class ErroAcao extends Error {
   constructor(status, mensagem, extra = {}) {
@@ -34,14 +35,15 @@ function nomeFase(db, id) {
   return f ? f.nome : null;
 }
 
-function evento(db, cardId, tipo, texto, dados, operador, agora) {
-  db.prepare(`INSERT INTO kb_eventos (card_id, tipo, texto, dados, operador_nome, criado_em)
-              VALUES (?, ?, ?, ?, ?, ?)`).run(cardId, tipo, texto, dados ? JSON.stringify(dados) : null, operador, agora);
+function evento(db, cardId, tipo, texto, dados, operador, agora, midiaId = null) {
+  db.prepare(`INSERT INTO kb_eventos (card_id, tipo, texto, dados, midia_id, operador_nome, criado_em)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`).run(cardId, tipo, texto, dados ? JSON.stringify(dados) : null, midiaId, operador, agora);
 }
 
-// Move o card para qualquer fase. `faseAtual` (opcional) é a fase que a tela mostrava:
-// se outra pessoa já moveu o card, devolve 409 em vez de sobrescrever sem saber.
-function moverCard(db, id, { faseId, faseAtual, operador }, { agora = agoraUtc() } = {}) {
+// Move o card. `faseAtual` (opcional) é a fase que a tela mostrava: se outra pessoa já moveu o
+// card, devolve 409 em vez de sobrescrever sem saber. `papel` vem do login (kanban/fluxo.js) e
+// as exigências da passagem (peças, PDF, aprovação, prazo) chegam nos demais campos.
+function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas, pdfMidiaId, decisao, observacao, prazoDias }, { agora = agoraUtc() } = {}) {
   const op = validarOperador(operador);
   const destino = Number(faseId);
   const nomeDestino = nomeFase(db, destino);
@@ -54,19 +56,120 @@ function moverCard(db, id, { faseId, faseAtual, operador }, { agora = agoraUtc()
       throw new ErroAcao(409, `Este card já foi movido para "${nomeFase(db, c.fase_id)}" por outra pessoa`, { fase_id: c.fase_id });
     }
     if (c.fase_id === destino) return { card: c, movido: false, arquivado: false };
+    const todas = db.prepare('SELECT id FROM kb_fases').all().map((f) => f.id);
+    if (!fluxo.podeMover(papel, c.fase_id, destino, todas)) throw new ErroAcao(403, fluxo.mensagemSemPermissao(papel, c.fase_id));
 
     const origem = nomeFase(db, c.fase_id);
-    // Mover libera o bloqueio de auto-arquivamento ligado pelo "Desarquivar".
-    db.prepare(`UPDATE kb_cards SET fase_id = ?, fase_desde = ?, auto_arquivar_bloqueado = 0, atualizado_em = ?
-                WHERE id = ?`).run(destino, agora, agora, c.id);
-    evento(db, c.id, 'fase', `Movido de ${origem} para ${nomeDestino} por ${op} em ${formatarBR(agora)}`,
-      { de: c.fase_id, para: destino }, op, agora);
+    const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, decisao, observacao, prazoDias, agora });
+    // Mover libera o bloqueio de auto-arquivamento ligado pelo "Desarquivar". Prazo de peças só vale em Aguardando Peças.
+    db.prepare(`UPDATE kb_cards SET fase_id = ?, fase_desde = ?, auto_arquivar_bloqueado = 0,
+                pecas_prazo_dias = ?, pecas_prazo_em = ?, atualizado_em = ? WHERE id = ?`)
+      .run(destino, agora, extra.prazo ? extra.prazo.dias : null, extra.prazo ? extra.prazo.em : null, agora, c.id);
+    evento(db, c.id, 'fase', `Movido de ${origem} para ${nomeDestino} por ${op} em ${formatarBR(agora)}${extra.texto ? `\n${extra.texto}` : ''}`,
+      { de: c.fase_id, para: destino, ...extra.dados }, op, agora, extra.midiaId);
 
     // Regra da fase 9: se a OS já foi finalizada no Onmotor, arquiva na hora.
     if (destino === 9 && c.os_finalizada_em) arquivarFinalizadosNaFase9(db, agora);
     const depois = cardOu404(db, c.id);
     return { card: depois, movido: true, arquivado: Boolean(depois.arquivado_em) };
   })();
+}
+
+// ---------- exigências da passagem de fase (kanban/fluxo.js) ----------
+const MAX_PECAS = 100;
+
+function validarPecas(pecas) {
+  const lista = (Array.isArray(pecas) ? pecas : []).map((p) => ({
+    descricao: String((p && p.descricao) || '').replace(/\s+/g, ' ').trim(),
+    origem: p && p.origem === 'checklist' ? 'checklist' : 'manual',
+  })).filter((p) => p.descricao);
+  if (!lista.length) throw new ErroAcao(400, 'Informe as peças para o orçamento', { exige: 'pecas' });
+  if (lista.length > MAX_PECAS) throw new ErroAcao(400, `No máximo ${MAX_PECAS} peças por orçamento`);
+  if (lista.some((p) => p.descricao.length > 300)) throw new ErroAcao(400, 'Descrição de peça muito longa (máximo 300 caracteres)');
+  return lista;
+}
+
+function validarObservacao(obs, obrigatoria) {
+  const o = String(obs || '').trim();
+  if (obrigatoria && !o) throw new ErroAcao(400, 'Escreva a observação (motivo da devolução)', { exige: 'observacao' });
+  if (o.length > 2000) throw new ErroAcao(400, 'Observação muito longa (máximo 2000 caracteres)');
+  return o || null;
+}
+
+// PDF enviado para este card pela rota de orçamento e ainda não usado em outro orçamento.
+function pdfDoCard(db, card, midiaId, oQue) {
+  const id = Number(midiaId);
+  const m = id ? db.prepare("SELECT * FROM kb_midias WHERE id = ? AND tipo = 'pdf' AND status = 'enviado' AND removido_em IS NULL").get(id) : null;
+  if (!m || m.card_id !== card.id) throw new ErroAcao(400, `Anexe o PDF ${oQue}`, { exige: 'pdf' });
+  if (db.prepare('SELECT 1 FROM kb_orcamentos WHERE pdf_midia_id = ? OR via_cliente_midia_id = ?').get(id, id)) {
+    throw new ErroAcao(400, 'Este PDF já foi usado: anexe o arquivo de novo', { exige: 'pdf' });
+  }
+  return m;
+}
+
+const orcamentoAberto = (db, cardId) => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(cardId);
+const listaPecas = (pecas) => pecas.map((p) => `• ${p.descricao}`).join('\n');
+
+function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, observacao, prazoDias, agora }) {
+  const exige = fluxo.exigencias(card.fase_id, destino);
+  const out = { texto: '', dados: {}, midiaId: null, prazo: null };
+  const textos = [];
+
+  if (exige.includes('aprovacao')) {
+    if (!['integral', 'parcial'].includes(decisao)) throw new ErroAcao(400, 'Escolha: orçamento aprovado integralmente ou parcialmente', { exige: 'aprovacao' });
+    const obs = validarObservacao(observacao, false);
+    const via = decisao === 'parcial' ? pdfDoCard(db, card, pdfMidiaId, 'da nova via do cliente (aprovação parcial)') : null;
+    let orc = orcamentoAberto(db, card.id);
+    if (!orc) orc = { id: db.prepare("INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, '[]', ?)").run(card.id, agora).lastInsertRowid };
+    db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
+      .run(decisao, obs, via ? via.id : null, op, agora, orc.id);
+    textos.push(decisao === 'integral' ? 'Orçamento aprovado integralmente.' : 'Orçamento aprovado parcialmente — nova via do cliente anexada.');
+    if (obs) textos.push(`Observação: ${obs}`);
+    Object.assign(out.dados, { orcamento_id: orc.id, decisao, observacao: obs });
+    if (via) out.midiaId = via.id;
+  }
+
+  if (exige.includes('pecas')) {
+    const lista = validarPecas(pecas);
+    const obs = validarObservacao(observacao, exige.includes('observacao'));
+    if (card.fase_id === fluxo.FASE.APROVACAO) {
+      // devolvido pela aprovação: fecha a solicitação anterior com o motivo
+      const ant = orcamentoAberto(db, card.id);
+      if (ant && !ant.decisao) {
+        db.prepare("UPDATE kb_orcamentos SET decisao = 'devolvido', decisao_obs = ?, decidido_por = ?, decidido_em = ? WHERE id = ?").run(obs, op, agora, ant.id);
+      }
+      textos.push(`Devolvido ao Orçamento. Motivo: ${obs}`);
+    } else if (obs) textos.push(`Observação: ${obs}`);
+    const orcId = db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_por, solicitado_em) VALUES (?, ?, ?, ?)')
+      .run(card.id, JSON.stringify(lista), op, agora).lastInsertRowid;
+    textos.push(`Peças para orçamento (${lista.length}):\n${listaPecas(lista)}`);
+    Object.assign(out.dados, { orcamento_id: orcId, pecas: lista, observacao: obs });
+  }
+
+  if (exige.includes('orcamento_pdf')) {
+    const pdf = pdfDoCard(db, card, pdfMidiaId, 'do orçamento');
+    const obs = validarObservacao(observacao, false);
+    let orc = orcamentoAberto(db, card.id);
+    if (!orc || orc.pdf_midia_id || orc.decisao) {
+      orc = { id: db.prepare("INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, '[]', ?)").run(card.id, agora).lastInsertRowid };
+    }
+    db.prepare('UPDATE kb_orcamentos SET pdf_midia_id = ?, enviado_por = ?, enviado_em = ? WHERE id = ?').run(pdf.id, op, agora, orc.id);
+    textos.push('Orçamento em PDF anexado.');
+    if (obs) textos.push(`Observação: ${obs}`);
+    Object.assign(out.dados, { orcamento_id: orc.id, observacao: obs });
+    out.midiaId = pdf.id;
+  }
+
+  if (exige.includes('prazo')) {
+    const dias = Number(prazoDias);
+    if (!Number.isInteger(dias) || dias < 1 || dias > 365) throw new ErroAcao(400, 'Informe o prazo de chegada das peças (dias, de 1 a 365)', { exige: 'prazo' });
+    out.prazo = { dias, em: new Date(Date.parse(agora) + dias * 86_400_000).toISOString() };
+    textos.push(`Prazo para as peças chegarem: ${dias} dia${dias === 1 ? '' : 's'} (até ${formatarBR(out.prazo.em)}).`);
+    Object.assign(out.dados, { prazo_dias: dias, prazo_em: out.prazo.em });
+  }
+
+  out.texto = textos.join('\n');
+  return out;
 }
 
 function arquivarCard(db, id, { operador }, { agora = agoraUtc() } = {}) {

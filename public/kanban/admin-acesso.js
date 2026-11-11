@@ -23,6 +23,9 @@
       <h2 id="admUsuTitulo" class="kb-sec">Usuários</h2>
       <p class="kb-dica">Cada pessoa ou setor entra com o próprio usuário. Senhas novas são provisórias: aparecem <strong>uma vez só</strong> aqui e a pessoa troca no primeiro acesso.
         Recepção e Gerência: acesso total · Compras e Pátio: tudo menos pós-vendas · Mecânicos: só o kanban · Administração: só Gerência.</p>
+      <p class="kb-dica"><strong>Papel no kanban</strong> — quem move cards entre fases: <em>Movimentação total</em> (Guilherme, Lucas, Vanilton) ·
+        <em>Orçamento e peças</em> (Cauã: Orçamento, Aquisição e Aguardando Peças) · <em>Aprovação de orçamento</em> (Luan) ·
+        <em>Só registros</em> (todos os demais: registram no card, não movem). Vale pelo login: conta usada por várias pessoas dá o mesmo papel a todas.</p>
       <div id="admUsuSenhas"></div>
       <ul id="admUsuLista" class="adm-mec-lista"></ul>
       <form id="admUsuForm" class="adm-mec-form" style="flex-wrap:wrap">
@@ -50,10 +53,13 @@
     .adm-aud td:first-child { white-space: nowrap; }
     .adm-senhas { background: #fff8e1; border: 1px solid #f0d27a; border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 14px; }
     .adm-senhas code { font-size: 16px; font-weight: 700; letter-spacing: .5px; }
-    .adm-inativo { opacity: .55; }`;
+    .adm-inativo { opacity: .55; }
+    .adm-papel { font-size: 13px; color: var(--suave, #5b6170); display: inline-flex; gap: 6px; align-items: center; }
+    .adm-papel select { font-size: 14px; padding: 4px 6px; border-radius: 6px; border: 1px solid #c9ced8; }`;
   document.head.appendChild(estilo);
 
   let perfis = [];
+  let papeisKanban = [];
 
   // Senhas novas aparecem uma vez (para anotar e entregar); somem ao recarregar a página.
   function mostrarSenhas(lista, titulo) {
@@ -66,11 +72,14 @@
     if (window.KanbanSessao) await window.KanbanSessao.pronto;
     const r = await api('/api/acesso/usuarios');
     perfis = r.perfis;
+    papeisKanban = r.papeis_kanban || [];
     $('admUsuPerfil').innerHTML = perfis.map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
     const eu = (window.KanbanSessao && window.KanbanSessao.dados && window.KanbanSessao.dados.usuario) || {};
     $('admUsuLista').innerHTML = r.usuarios.length ? r.usuarios.map((u) => `<li class="${u.ativo ? '' : 'adm-inativo'}">
         <strong>${esc(u.nome)} <small>· ${esc(u.login)} · ${esc(u.perfil_nome)}${u.ativo ? '' : ' · desativado'}${u.trocar_senha && u.ativo ? ' · aguardando 1º acesso' : ''}</small></strong>
         <small>${u.ultimo_login_em ? `último acesso ${dataBR(u.ultimo_login_em)}` : 'nunca entrou'}</small>
+        ${u.ativo ? `<label class="adm-papel">Kanban <select data-papel="${u.id}" aria-label="Papel no kanban de ${esc(u.nome)}">${papeisKanban.map((p) =>
+          `<option value="${p.id}" ${p.id === u.kb_papel ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select></label>` : ''}
         ${u.ativo ? `<button type="button" class="adm-mini" data-resetar="${u.id}">Senha provisória</button>` : ''}
         ${u.id === eu.id ? '' : `<button type="button" class="adm-mini" data-ativo="${u.ativo ? 0 : 1}" data-id="${u.id}">${u.ativo ? 'Desativar' : 'Reativar'}</button>`}
       </li>`).join('') : '<li>Nenhum usuário ainda.</li>';
@@ -94,6 +103,7 @@
       if (d.perfil) partes.push(d.perfil);
       if (d.origem) partes.push(d.origem);
       if (d.finalidade) partes.push(d.finalidade);
+      if (d.papel) partes.push(`papel: ${d.papel}`);
       return esc(partes.join(' · '));
     };
     $('admAudLista').innerHTML = lista.length ? lista.map((a) => `<tr><td>${dataBR(a.quando)}</td><td>${esc(a.usuario_login || '—')}</td><td>${esc(a.operador || '')}</td>
@@ -132,6 +142,14 @@
         await carregarUsuarios();
       }
     } catch (e) { alert(e.message); b.disabled = false; }
+  });
+
+  main.addEventListener('change', async (ev) => {
+    const sel = ev.target.closest('select[data-papel]');
+    if (!sel) return;
+    sel.disabled = true;
+    try { await api(`/api/acesso/usuarios/${sel.dataset.papel}/papel`, { json: { papel: sel.value } }); } catch (e) { alert(e.message); }
+    await carregarUsuarios().catch(() => null);
   });
 
   $('admAudForm').addEventListener('submit', (ev) => { ev.preventDefault(); carregarAuditoria().catch((e) => alert(e.message)); });

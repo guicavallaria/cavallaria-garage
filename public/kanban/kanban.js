@@ -18,6 +18,10 @@
   let filtroFase = ler('s', 'kb.filtroFase') || '';
   let filtroEmpresa = ler('s', 'kb.filtroEmpresa') || '';
   let modoBusca = 'ativos';
+  // Tela: 'geral' (quadro completo), 'pecas' (setor de orçamento e peças) ou 'aprovacao'.
+  // O padrão vem do papel do login (Cauã → peças, Luan → aprovação); a escolha vale na aba.
+  const KF = window.KanbanFluxo;
+  let visao = ler('s', 'kb.visao') || null;
   let cardAberto = null; // { id, card } do painel
   let operador = ler('l', 'kb.operador') || '';
   // Login de mecânico: o operador é sempre ele (o servidor também força). Contas de setor
@@ -124,6 +128,24 @@
   }
 
   // ---------- quadro ----------
+  const numFase = (id) => (estado ? estado.fases.findIndex((f) => f.id === id) + 1 : id);
+  const nomeNum = (f) => `${numFase(f.id)}. ${esc(f.nome)}`;
+  const papel = () => (estado && estado.eu ? estado.eu.papel : 'total');
+  const visaoDoPapel = () => ({ orcamento: 'pecas', aprovacao: 'aprovacao' }[papel()] || 'geral');
+
+  // Colunas do quadro geral: Orçamento, Aquisição e Aguardando Peças viram um grupo só (clicar
+  // nele abre a tela do setor de peças); as outras fases ficam como estão.
+  function colunasGeral() {
+    const setor = estado.fluxo ? estado.fluxo.setor_pecas : [];
+    const cols = [];
+    for (const f of estado.fases) {
+      if (!setor.includes(f.id)) { cols.push({ id: f.id, nome: nomeNum(f), fases: [f.id] }); continue; }
+      if (!cols.some((c) => c.grupo)) cols.push({ id: setor[0], grupo: true, nome: 'Orçamento e Peças', fases: setor.slice() });
+    }
+    return cols;
+  }
+  const colunaDaFase = (faseId) => (colunasGeral().find((c) => c.fases.includes(faseId)) || {}).id || faseId;
+
   function passaFiltros(c) {
     if (filtroEmpresa && c.empresa !== filtroEmpresa) return false;
     if (filtroMecanico === 'sem') { if (c.mecanico_id) return false; } else if (filtroMecanico && String(c.mecanico_id) !== filtroMecanico) return false;
@@ -134,7 +156,8 @@
     const t = tempoNaFase(c.fase_desde, agora);
     const velho = t.dias > VELHO_DIAS;
     const veiculo = [c.marca, c.modelo].filter(Boolean).join(' ');
-    return `<div class="kb-card${velho ? ' kb-velho' : ''}" role="button" tabindex="0" draggable="true" data-id="${c.id}" data-fase="${c.fase_id}"
+    const piscar = KF.motivoPiscar(c, agora);
+    return `<div class="kb-card${velho ? ' kb-velho' : ''}${piscar ? ' kb-piscar' : ''}" ${piscar ? `title="${esc(piscar)}"` : ''} role="button" tabindex="0" draggable="true" data-id="${c.id}" data-fase="${c.fase_id}"
         aria-label="${c.empresa === 'awdyna' ? 'AWDYNA, ' : ''}OS ${esc(c.os_numero)}, ${esc(c.placa || '')}, ${t.texto} nesta fase">
       <div class="kb-card-l1">
         <span class="kb-os">OS ${esc(c.os_numero)}</span>
@@ -155,24 +178,90 @@
     </div>`;
   }
 
+  // Mostra o quadro geral ou a tela do setor; a busca esconde os dois.
+  function aplicarVisao() {
+    const lista = buscando();
+    const setor = visao !== 'geral';
+    $('kbQuadro').hidden = lista || setor;
+    $('kbAbas').hidden = lista || setor;
+    $('kbSetor').hidden = lista || !setor;
+    document.body.classList.toggle('kb-em-setor', setor && !lista);
+    renderBarraVisao();
+  }
+
+  function renderBarraVisao() {
+    const b = $('kbBarraVisao');
+    if (!estado || buscando()) { b.hidden = true; return; }
+    const minha = visaoDoPapel();
+    const atrasados = KF.atrasadosAprovacao(estado.cards.filter(passaFiltros), Date.now());
+    let html = '';
+    if (visao !== 'geral') {
+      html = `<strong>${esc(KF.VISOES[visao].titulo)}</strong>
+        <button type="button" class="kb-botao kb-botao-sec" data-visao="geral">${minha === visao ? '⤢ Ver kanban completo' : '← Voltar ao quadro geral'}</button>`;
+    } else if (minha !== 'geral') {
+      html = `<button type="button" class="kb-botao" data-visao="${minha}">↩ Minha tela: ${esc(KF.VISOES[minha].titulo)}</button>`;
+      if (minha === 'aprovacao' && atrasados.length) html += ` <span class="kb-alerta-mini">🔴 ${atrasados.length} card(s) há mais de 1 h na aprovação</span>`;
+    }
+    b.innerHTML = html;
+    b.hidden = !html;
+    // título da aba avisa a aprovação atrasada para quem cuida dela
+    const avisa = atrasados.length && (visao === 'aprovacao' || papel() === 'aprovacao');
+    document.title = `${avisa ? `(${atrasados.length}) 🔴 ` : ''}Kanban de OS — Cavallaria Garage`;
+  }
+
+  function trocarVisao(v) {
+    visao = v;
+    guardar('s', 'kb.visao', v);
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  const ctxFluxo = { estado: () => estado, api };
+
   function render() {
+    if (!visao || !(visao === 'geral' || KF.VISOES[visao])) visao = visaoDoPapel();
+    aplicarVisao();
+    if (visao !== 'geral') {
+      KF.renderSetor(ctxFluxo, $('kbSetor'), visao, estado.cards.filter(passaFiltros));
+      renderSync();
+      return;
+    }
     const agora = Date.now();
     const visiveis = estado.cards.filter(passaFiltros);
     const porFase = new Map(estado.fases.map((f) => [f.id, []]));
     for (const c of visiveis) (porFase.get(c.fase_id) || []).push(c);
+    const colunas = colunasGeral();
+    faseAtiva = colunaDaFase(faseAtiva);
     // Filtro de fase só no PC; no celular as abas já mostram uma fase por vez.
     const noPC = window.matchMedia('(min-width: 900px)').matches;
-    const fases = estado.fases.filter((f) => !noPC || !filtroFase || String(f.id) === filtroFase);
+    const mostrar = colunas.filter((col) => !noPC || !filtroFase || col.fases.includes(Number(filtroFase)));
+    const qtd = (col) => col.fases.reduce((n, f) => n + porFase.get(f).length, 0);
 
-    $('kbAbas').innerHTML = estado.fases.map((f) =>
-      `<button type="button" class="kb-aba" role="tab" data-fase="${f.id}" aria-selected="${f.id === faseAtiva}">
-        ${f.id}. ${esc(f.nome)}<span class="kb-n">${porFase.get(f.id).length}</span></button>`).join('');
+    $('kbAbas').innerHTML = colunas.map((col) =>
+      `<button type="button" class="kb-aba" role="tab" data-fase="${col.id}" aria-selected="${col.id === faseAtiva}">
+        ${col.nome}<span class="kb-n">${qtd(col)}</span></button>`).join('');
 
-    $('kbQuadro').innerHTML = fases.map((f) => {
-      const lista = porFase.get(f.id);
-      return `<section class="kb-coluna${f.id === faseAtiva ? ' kb-ativa' : ''}" data-fase="${f.id}" aria-label="${esc(f.nome)}">
-        <div class="kb-coluna-topo"><span>${f.id}. ${esc(f.nome)}</span><span class="kb-n">${lista.length}</span></div>
-        <div class="kb-lista">${lista.length ? lista.map((c) => cardHtml(c, agora)).join('') : '<p class="kb-vazio">Nenhum card nesta fase.</p>'}</div>
+    const nomeFase = (id) => (estado.fases.find((f) => f.id === id) || {}).nome || '';
+    $('kbQuadro').innerHTML = mostrar.map((col) => {
+      let corpo;
+      let botao = '';
+      if (col.grupo) {
+        const a = KF.alertasSetor(visiveis, agora);
+        const nAlertas = new Set([...a.vencidos, ...a.parados, ...a.semEvolucao].map((c) => c.id)).size;
+        botao = '<button type="button" class="kb-abrir-visao" data-visao="pecas" title="Abrir a tela do setor de orçamento e peças">⤢</button>';
+        corpo = `<button type="button" class="kb-grupo-resumo" data-visao="pecas">
+            ${col.fases.map((f) => `<span><strong>${porFase.get(f).length}</strong> ${esc(nomeFase(f))}</span>`).join('')}
+            ${nAlertas ? `<span class="kb-grupo-alerta">⚠ ${nAlertas} com alerta</span>` : ''}
+            <em>Abrir painel do setor →</em></button>`
+          + col.fases.map((f) => (porFase.get(f).length ? `<div class="kb-sub-fase">${esc(nomeFase(f))}</div>${porFase.get(f).map((c) => cardHtml(c, agora)).join('')}` : '')).join('');
+      } else {
+        const lista = porFase.get(col.id);
+        if (estado.fluxo && col.id === estado.fluxo.aprovacao) botao = '<button type="button" class="kb-abrir-visao" data-visao="aprovacao" title="Abrir a tela da aprovação de orçamento">⤢</button>';
+        corpo = lista.length ? lista.map((c) => cardHtml(c, agora)).join('') : '<p class="kb-vazio">Nenhum card nesta fase.</p>';
+      }
+      return `<section class="kb-coluna${col.grupo ? ' kb-coluna-grupo' : ''}${col.id === faseAtiva ? ' kb-ativa' : ''}" data-fase="${col.id}" aria-label="${esc(col.nome)}">
+        <div class="kb-coluna-topo"><span>${col.nome}</span>${botao}<span class="kb-n">${qtd(col)}</span></div>
+        <div class="kb-lista">${corpo}</div>
       </section>`;
     }).join('');
 
@@ -188,7 +277,7 @@
     selM.value = filtroMecanico;
     if (selM.value !== filtroMecanico) { filtroMecanico = ''; selM.value = ''; }
     const selF = $('kbFiltroFase');
-    selF.innerHTML = '<option value="">Todas</option>' + estado.fases.map((f) => `<option value="${f.id}">${f.id}. ${esc(f.nome)}</option>`).join('');
+    selF.innerHTML = '<option value="">Todas</option>' + estado.fases.map((f) => `<option value="${f.id}">${nomeNum(f)}</option>`).join('');
     selF.value = filtroFase;
     // Filtro de empresa só aparece quando o kanban lê mais de uma
     $('kbFiltroEmpresaRot').hidden = !(estado.empresas && estado.empresas.length > 1);
@@ -232,6 +321,7 @@
         faseAtiva = comCard ? comCard.id : 1;
       }
       if (!estado.fases.some((f) => f.id === faseAtiva)) faseAtiva = 1;
+      if (!visao || !(visao === 'geral' || KF.VISOES[visao])) visao = visaoDoPapel();
       preencherFiltros();
       render();
       if (buscando()) buscarAgora();
@@ -241,11 +331,20 @@
   }
 
   // ---------- ações ----------
-  async function mover(id, faseId, faseAtual) {
+  async function mover(id, faseId, faseAtual, opcoes = {}) {
+    const permitidos = (estado.fluxo && estado.fluxo.destinos[faseAtual]) || [];
+    if (!permitidos.includes(faseId)) {
+      avisar(papel() === 'registro' ? 'Seu usuário não move cards: só registra (texto, fotos, checklists)' : 'Seu usuário não pode mover este card para essa fase', true);
+      return null;
+    }
     const op = await garantirOperador();
     if (!op) return null;
+    const card = estado.cards.find((x) => x.id === id) || (cardAberto && cardAberto.id === id ? cardAberto.card : null) || { id, fase_id: faseAtual, os_numero: '' };
+    // Peças (Orçamento), PDF (Aprovação), decisão (Aquisição), prazo (Aguardando Peças): cancelou = card fica onde está
+    const extras = await KF.coletar(ctxFluxo, { ...card, fase_id: faseAtual }, faseId, { operador: op, decisao: opcoes.decisao });
+    if (!extras) return null;
     try {
-      const r = await api(`/api/kanban/cards/${id}/mover`, { json: { fase_id: faseId, fase_atual: faseAtual, operador: op } });
+      const r = await api(`/api/kanban/cards/${id}/mover`, { json: { fase_id: faseId, fase_atual: faseAtual, operador: op, ...extras } });
       if (r.arquivado) avisar(`OS ${r.card.os_numero} arquivada: a OS já estava finalizada no Onmotor`);
       else if (r.movido) avisar(`OS ${r.card.os_numero} → ${r.card.fase_nome}`);
       await carregar();
@@ -318,9 +417,10 @@
     if (!col || !arrastado) return;
     ev.preventDefault();
     col.classList.remove('kb-alvo');
-    const destino = Number(col.dataset.fase);
+    const destino = Number(col.dataset.fase); // o grupo do setor de peças recebe como Orçamento
     const { id, fase } = arrastado;
     arrastado = null;
+    if (col.classList.contains('kb-coluna-grupo') && estado.fluxo.setor_pecas.includes(fase)) return; // dentro do grupo: use a tela do setor
     if (destino !== fase) await mover(id, destino, fase);
   });
 
@@ -347,8 +447,10 @@
       if (!cardAberto || cardAberto.id !== Number(id)) return;
       cardAberto.card = dados.card;
       cardAberto.eventos = dados.eventos;
+      cardAberto.orcamentos = dados.orcamentos || [];
       if (mesmo && $('kbLinhaTempo')) {
         renderCabecalho();
+        renderOrcamentos();
         renderLinhaTempo();
         if (!cardAberto.compositor) renderCompositor(); // não redesenha o que está sendo digitado/gravado
       } else renderPainel();
@@ -364,6 +466,7 @@
   function renderPainel() {
     $('kbPainelCorpo').innerHTML = `
       <div id="kbCabecalho"></div>
+      <div id="kbOrcamentos"></div>
       <div id="kbChecklists"></div>
       <div id="kbLaunch"></div>
       <div id="kbCompositor"></div>
@@ -372,9 +475,28 @@
       <ul id="kbLinhaTempo" class="kb-tempo-linha"></ul>
       <div id="kbDadosOnmotor"></div>`;
     renderCabecalho();
+    renderOrcamentos();
     renderCompositor();
     renderLinhaTempo();
     M.listarItens().then(renderPendentes);
+  }
+
+  // Solicitações de orçamento do card: peças pedidas, PDF, decisão da aprovação.
+  function renderOrcamentos() {
+    const el = $('kbOrcamentos');
+    if (!el || !cardAberto) return;
+    const lista = cardAberto.orcamentos || [];
+    if (!lista.length) { el.innerHTML = ''; return; }
+    const DEC = { integral: 'Aprovado integralmente', parcial: 'Aprovado parcialmente', devolvido: 'Devolvido ao Orçamento' };
+    el.innerHTML = `<h3 class="kb-sec">Orçamento${lista.length > 1 ? `s (${lista.length})` : ''}</h3>` + lista.map((o, i) => `
+      <div class="kb-orc${i ? ' kb-orc-antigo' : ''}">
+        <div class="kb-orc-topo">${o.solicitado_por ? `Pedido por ${esc(o.solicitado_por)} em ${dataBR(o.solicitado_em)}` : `Desde ${dataBR(o.solicitado_em)}`}
+          ${o.decisao ? `<span class="kb-orc-dec kb-orc-${o.decisao}">${DEC[o.decisao]}</span>` : (o.pdf_url ? '<span class="kb-orc-dec">Aguardando aprovação</span>' : '<span class="kb-orc-dec">Em orçamento</span>')}</div>
+        ${o.pecas.length ? `<ul class="kb-g-pecas">${o.pecas.map((p) => `<li>${esc(p.descricao)}</li>`).join('')}</ul>` : ''}
+        <div class="kb-orc-links">${o.pdf_url ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
+          ${o.via_cliente_url ? `<a href="${esc(o.via_cliente_url)}" target="_blank" rel="noopener">📄 Nova via do cliente</a>` : ''}</div>
+        ${o.decisao_obs ? `<p class="kb-orc-obs">${esc(o.decisao_obs)}${o.decidido_por ? ` — ${esc(o.decidido_por)}` : ''}</p>` : ''}
+      </div>`).join('');
   }
 
   // ---------- checklists do card (Etapa 4: vistoria de entrada) ----------
@@ -505,17 +627,21 @@
       acoes = `<p class="kb-arquivado-info">Arquivado em ${dataBR(c.arquivado_em)} por ${esc(c.arquivado_por || '—')}. Ao desarquivar, volta para "${esc(fase ? fase.nome : '')}".</p>
         <div class="kb-acoes-card kb-so-gestor"><button type="button" class="kb-botao" data-acao="desarquivar">Desarquivar</button></div>`;
     } else if (modo === 'mover') {
+      // só as fases para onde este login pode mandar o card
+      const pode = (estado.fluxo && estado.fluxo.destinos[c.fase_id]) || [];
       acoes = `<h3 class="kb-sec">Mover para…</h3>
-        <div class="kb-lista-fases">${estado.fases.map((f) =>
-          `<button type="button" data-acao="mover-para" data-fase="${f.id}" ${f.id === c.fase_id ? 'disabled aria-current="true"' : ''}>${f.id}. ${esc(f.nome)}${f.id === c.fase_id ? ' (atual)' : ''}</button>`).join('')}</div>
+        <div class="kb-lista-fases">${estado.fases.filter((f) => f.id === c.fase_id || pode.includes(f.id)).map((f) =>
+          `<button type="button" data-acao="mover-para" data-fase="${f.id}" ${f.id === c.fase_id ? 'disabled aria-current="true"' : ''}>${nomeNum(f)}${f.id === c.fase_id ? ' (atual)' : ''}</button>`).join('')}</div>
         <div class="kb-acoes-card"><button type="button" class="kb-botao kb-botao-sec" data-acao="voltar">Cancelar</button></div>`;
     } else if (modo === 'arquivar') {
       acoes = `<div class="kb-confirmar"><p>Arquivar a OS ${esc(c.os_numero)}? O card some do kanban, mas pode ser desarquivado depois pela busca de arquivados.</p>
         <div class="kb-acoes-card"><button type="button" class="kb-botao kb-botao-perigo" data-acao="confirmar-arquivar">Sim, arquivar</button>
         <button type="button" class="kb-botao kb-botao-sec" data-acao="voltar">Cancelar</button></div></div>`;
     } else {
+      const podeMover = ((estado.fluxo && estado.fluxo.destinos[c.fase_id]) || []).length > 0;
       acoes = `<div class="kb-acoes-card">
-          <button type="button" class="kb-botao" data-acao="mover">Mover para…</button>
+          ${podeMover ? '<button type="button" class="kb-botao" data-acao="mover">Mover para…</button>'
+            : `<span class="kb-dica-mover">${papel() === 'registro' ? 'Seu usuário registra no card, mas não move entre fases.' : 'Seu usuário não move cards desta fase.'}</span>`}
           <button type="button" class="kb-botao kb-botao-sec kb-so-gestor" data-acao="arquivar">Arquivar</button>
         </div>
         <label class="kb-campo-mecanico">🔧 Mecânico
@@ -528,7 +654,8 @@
     }
 
     $('kbCabecalho').innerHTML = `
-      <span class="kb-fase-atual">${fase ? `${fase.id}. ${esc(fase.nome)}` : ''}</span>
+      <span class="kb-fase-atual">${fase ? nomeNum(fase) : ''}</span>
+      ${c.fase_id === 10 && c.pecas_prazo_em ? `<p class="kb-selo ${Date.parse(c.pecas_prazo_em) < Date.now() ? 'kb-selo-vencido' : 'kb-selo-prazo'}">⏳ Peças até ${dataBR(c.pecas_prazo_em)} (${c.pecas_prazo_dias} d)${Date.parse(c.pecas_prazo_em) < Date.now() ? ' — prazo vencido' : ''}</p>` : ''}
       ${c.os_finalizada_em ? `<p class="kb-selo kb-selo-fin">OS finalizada no Onmotor em ${dataBR(c.os_finalizada_em)}</p>` : ''}
       ${acoes}`;
 
@@ -937,8 +1064,7 @@
 
   function mostrarModo() {
     const lista = buscando();
-    $('kbQuadro').hidden = lista;
-    $('kbAbas').hidden = lista;
+    aplicarVisao();
     $('kbResultados').hidden = !lista;
     document.querySelector('.kb-filtros').hidden = lista; // filtros valem para o quadro, não para a busca
     document.querySelectorAll('.kb-modo-btn').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.modo === modoBusca)));
@@ -959,7 +1085,7 @@
         <div class="kb-res-lista">${r.cards.map((c) => `
           <button type="button" class="kb-res-item" data-id="${c.id}">
             <span><strong>OS ${esc(c.os_numero)}</strong> ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''}</span>
-            <span class="kb-res-fase">${c.arquivado_em ? `Arquivado em ${dataBR(c.arquivado_em)}` : `${c.fase_id}. ${esc(c.fase_nome)}`}</span>
+            <span class="kb-res-fase">${c.arquivado_em ? `Arquivado em ${dataBR(c.arquivado_em)}` : `${numFase(c.fase_id)}. ${esc(c.fase_nome)}`}</span>
             <span class="kb-res-sub">${esc([c.marca, c.modelo].filter(Boolean).join(' ') || 'Veículo')}${c.ano ? ' · ' + esc(c.ano) : ''} · ${esc(c.primeiro_nome || 'Cliente')}</span>
           </button>`).join('') || '<p class="kb-vazio">Nada encontrado.</p>'}</div>`;
     } catch (e) {
@@ -1014,7 +1140,7 @@
   (() => {
     const q = $('kbQuadro');
     const ehCelular = () => !window.matchMedia('(min-width: 900px)').matches;
-    const ids = () => (estado ? estado.fases.map((f) => f.id) : []);
+    const ids = () => (estado ? colunasGeral().map((c) => c.id) : []);
     let ini = null; // { x, y, t }
     let modo = null; // 'h' = deslizando para o lado, 'v' = rolando
     let col = null;
@@ -1087,6 +1213,38 @@
       ev.preventDefault();
     }, true);
   })();
+
+  // ---------- telas do setor de peças e da aprovação ----------
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-visao]');
+    if (!b || !estado) return;
+    ev.stopPropagation();
+    trocarVisao(b.dataset.visao);
+  }, true);
+  $('kbSetor').addEventListener('click', async (ev) => {
+    const mv = ev.target.closest('[data-fluxo-mover]');
+    if (mv) {
+      const c = estado.cards.find((x) => x.id === Number(mv.dataset.id));
+      if (!c) return;
+      mv.disabled = true;
+      await mover(c.id, Number(mv.dataset.fluxoMover), c.fase_id, { decisao: mv.dataset.decisao });
+      mv.disabled = false;
+      return;
+    }
+    if (ev.target.closest('[data-fluxo-notif]')) {
+      try { await Notification.requestPermission(); } catch (_) { /* navegador sem notificação */ }
+      render();
+      return;
+    }
+    if (ev.target.closest('a')) return; // link do PDF
+    const card = ev.target.closest('[data-abrir-card]');
+    if (card) abrirCard(card.dataset.abrirCard);
+  });
+  $('kbSetor').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' || !ev.target.matches('[data-abrir-card]')) return;
+    ev.preventDefault();
+    abrirCard(ev.target.dataset.abrirCard);
+  });
 
   // ---------- abrir card: clique ou Enter ----------
   $('kbQuadro').addEventListener('click', (ev) => {

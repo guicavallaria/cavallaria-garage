@@ -52,11 +52,15 @@
     </div>
   </div>
 
+  <div id="kbBarraVisao" class="kb-barra-visao" hidden></div>
+
   <nav id="kbAbas" class="kb-abas" aria-label="Fases"></nav>
 
   <main id="kbQuadro" class="kb-quadro" aria-live="polite">
     <p class="kb-carregando">Carregando…</p>
   </main>
+  <!-- Telas do setor de peças (Cauã) e da aprovação de orçamento (Luan): fluxo.js -->
+  <main id="kbSetor" class="kb-setor" hidden aria-live="polite"></main>
   <section id="kbResultados" class="kb-resultados" hidden aria-live="polite"></section>
 
   <aside id="kbPainel" class="kb-painel" hidden aria-modal="true" role="dialog" aria-labelledby="kbPainelTitulo">
@@ -113,6 +117,7 @@
 
   <script src="/kanban/sessao.js"></script>
   <script src="/kanban/midia.js"></script>
+  <script src="/kanban/fluxo.js"></script>
   <script src="/kanban/kanban.js"></script>
   <script src="/kanban/checklist.js"></script>
 </body>

@@ -137,7 +137,12 @@ function rotasConta({ db }) {
 
   r.get('/usuarios', (req, res) => responder(res, () => {
     exigirAdmin(req);
-    return { usuarios: usuarios.listar(db), perfis: Object.entries(perfis.PERFIS).map(([id, p]) => ({ id, nome: p.nome })), combinadas: usuarios.CONTAS_COMBINADAS };
+    return {
+      usuarios: usuarios.listar(db),
+      perfis: Object.entries(perfis.PERFIS).map(([id, p]) => ({ id, nome: p.nome })),
+      papeis_kanban: Object.entries(require('../kanban/fluxo').PAPEIS).map(([id, nome]) => ({ id, nome })),
+      combinadas: usuarios.CONTAS_COMBINADAS,
+    };
   }));
 
   r.post('/usuarios', (req, res) => responder(res, () => {
@@ -160,6 +165,13 @@ function rotasConta({ db }) {
     const out = usuarios.resetarSenha(db, req.params.id);
     audit(req, 'senha_resetada', { login: out.usuario.login }, out.usuario.id);
     return out;
+  }));
+
+  r.post('/usuarios/:id/papel', (req, res) => responder(res, () => {
+    exigirAdmin(req);
+    const u = usuarios.definirPapel(db, req.params.id, String((req.body || {}).papel || ''));
+    audit(req, 'papel_kanban_alterado', { login: u.login, papel: u.kb_papel }, u.id);
+    return u;
   }));
 
   r.post('/usuarios/:id/ativo', (req, res) => responder(res, () => {

@@ -22,16 +22,16 @@ const OS = LINHAS.find((l) => !l.etapas.finalizado && l.etapas.entrada && !l.eta
 test('mover: muda a fase, zera o tempo na fase e registra "Movido de X para Y por <operador> em …"', () => {
   const db = bancoComCards();
   const c = card(db, OS);
-  const r = acoes.moverCard(db, c.id, { faseId: 4, faseAtual: 2, operador: '  Vanilton  ' }, { agora: AGORA });
+  const r = acoes.moverCard(db, c.id, { faseId: 7, faseAtual: 2, operador: '  Vanilton  ' }, { agora: AGORA });
   assert.equal(r.movido, true);
   const depois = card(db, OS);
-  assert.equal(depois.fase_id, 4);
+  assert.equal(depois.fase_id, 7);
   assert.equal(depois.fase_desde, AGORA);
   const ev = ultimoEvento(db, c.id);
   assert.equal(ev.tipo, 'fase');
   assert.equal(ev.operador_nome, 'Vanilton');
-  assert.equal(ev.texto, 'Movido de Avaliação/Diagnóstico para Aprovação de Orçamento por Vanilton em 23/10/2026 12:00');
-  assert.deepEqual(JSON.parse(ev.dados), { de: 2, para: 4 });
+  assert.equal(ev.texto, 'Movido de Avaliação/Diagnóstico para Execução de Serviço por Vanilton em 23/10/2026 12:00');
+  assert.deepEqual(JSON.parse(ev.dados), { de: 2, para: 7 });
 });
 
 test('mover para a mesma fase não gera registro', () => {
@@ -45,10 +45,10 @@ test('mover para a mesma fase não gera registro', () => {
 test('mover com a tela desatualizada (outra pessoa já moveu) devolve 409 e não sobrescreve', () => {
   const db = bancoComCards();
   const c = card(db, OS);
-  acoes.moverCard(db, c.id, { faseId: 3, faseAtual: 2, operador: 'Luan' });
-  assert.throws(() => acoes.moverCard(db, c.id, { faseId: 7, faseAtual: 2, operador: 'Edson' }),
-    (e) => e.status === 409 && /já foi movido para "Orçamento"/.test(e.message));
-  assert.equal(card(db, OS).fase_id, 3);
+  acoes.moverCard(db, c.id, { faseId: 7, faseAtual: 2, operador: 'Luan' });
+  assert.throws(() => acoes.moverCard(db, c.id, { faseId: 8, faseAtual: 2, operador: 'Edson' }),
+    (e) => e.status === 409 && /já foi movido para "Execução de Serviço"/.test(e.message));
+  assert.equal(card(db, OS).fase_id, 7);
 });
 
 test('validações: operador obrigatório, fase inválida, card inexistente', () => {
@@ -56,7 +56,7 @@ test('validações: operador obrigatório, fase inválida, card inexistente', ()
   const c = card(db, OS);
   assert.throws(() => acoes.moverCard(db, c.id, { faseId: 3, operador: '   ' }), (e) => e.status === 400);
   assert.throws(() => acoes.moverCard(db, c.id, { faseId: 3, operador: 'Sistema' }), (e) => e.status === 400);
-  assert.throws(() => acoes.moverCard(db, c.id, { faseId: 10, operador: 'Luan' }), (e) => e.status === 400);
+  assert.throws(() => acoes.moverCard(db, c.id, { faseId: 99, operador: 'Luan' }), (e) => e.status === 400);
   assert.throws(() => acoes.moverCard(db, 99999, { faseId: 3, operador: 'Luan' }), (e) => e.status === 404);
 });
 
@@ -146,8 +146,8 @@ test('busca separa ativos e arquivados; arquivados do mais recente para o mais a
 test('operadores conhecidos: mecânicos ativos + quem já registrou algo, sem repetir', () => {
   const db = bancoComCards();
   const c = card(db, OS);
-  acoes.moverCard(db, c.id, { faseId: 3, operador: 'Luan' });
-  acoes.moverCard(db, c.id, { faseId: 4, operador: 'luan' });
+  acoes.moverCard(db, c.id, { faseId: 7, operador: 'Luan' });
+  acoes.moverCard(db, c.id, { faseId: 8, operador: 'luan' });
   const ops = acoes.operadoresConhecidos(db);
   assert.ok(ops.includes('Edson'));
   assert.equal(ops.filter((n) => n.toLowerCase() === 'luan').length, 1);
@@ -165,11 +165,11 @@ test('rotas HTTP: status certos e broadcast só quando algo muda', async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   try {
     const c = card(db, OS);
-    let r = await post(`/cards/${c.id}/mover`, { fase_id: 3, fase_atual: 2, operador: 'Luan' });
+    let r = await post(`/cards/${c.id}/mover`, { fase_id: 7, fase_atual: 2, operador: 'Luan' });
     assert.equal(r.status, 200);
     const corpo = await r.json();
-    assert.equal(corpo.card.fase_id, 3);
-    assert.equal(corpo.card.fase_nome, 'Orçamento');
+    assert.equal(corpo.card.fase_id, 7);
+    assert.equal(corpo.card.fase_nome, 'Execução de Serviço');
     assert.deepEqual(eventos, ['kanban']);
 
     r = await post(`/cards/${c.id}/mover`, { fase_id: 5, fase_atual: 2, operador: 'Luan' });
@@ -186,7 +186,7 @@ test('rotas HTTP: status certos e broadcast só quando algo muda', async () => {
     assert.equal(busca.cards[0].arquivado_por, 'Gerência');
 
     r = await post(`/cards/${c.id}/desarquivar`, { operador: 'Gerência' });
-    assert.equal((await r.json()).card.fase_id, 3);
+    assert.equal((await r.json()).card.fase_id, 7);
     assert.equal((await (await fetch(`${base}/busca?q=${OS}`)).json()).cards[0].id, c.id);
   } finally {
     srv.close();
