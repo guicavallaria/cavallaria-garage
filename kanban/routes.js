@@ -429,6 +429,22 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     }
   });
 
+  // Botão "Baixar" das mídias do card: registra quem baixou e manda a URL assinada como download.
+  r.get('/midias/:id/baixar', async (req, res) => {
+    try {
+      const { url, midia } = await arquivos.urlParaBaixar(db, storage, req.params.id);
+      auditoria.registrar(db, {
+        usuario: req.session && req.session.usuario, acao: 'midia_baixada', cardId: midia.card_id,
+        entidade: 'midias', entidadeId: midia.id, detalhes: { tipo: midia.tipo }, ip: req.ip,
+      });
+      res.redirect(302, url);
+    } catch (e) {
+      if (e instanceof acoes.ErroAcao) return res.status(e.status).type('text').send(e.message);
+      log('kanban: erro ao baixar mídia: ' + e.message);
+      res.status(500).type('text').send('Erro ao baixar o arquivo');
+    }
+  });
+
   r.get('/cards/:id/links', (req, res) => responder(res, () => { exigirGestor(req); return links.linksDoCard(db, req.params.id); }, log));
   r.post('/links/:id/revogar', (req, res) => responder(res, () => {
     exigirGestor(req);

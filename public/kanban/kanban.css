@@ -287,6 +287,13 @@ body.kb-perfil-mecanico #kbOperador { display: none !important; }
   border: none; background: none; color: var(--azul); font-size: 12.5px; cursor: pointer; padding: 2px 4px; text-decoration: underline;
 }
 .kb-link-pequeno { display: inline-block; }
+.kb-baixar {
+  display: inline-flex; align-items: center; gap: 4px; margin: 2px 0 4px; padding: 6px 12px; min-height: 34px;
+  border: 1px solid var(--linha); border-radius: 8px; background: #fff; color: var(--azul);
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.kb-baixar:hover { background: #f2f6fc; }
+.kb-botao-pdf + .kb-baixar { margin-left: 6px; }
 .kb-miniatura { display: block; border: none; padding: 0; background: none; cursor: zoom-in; margin: 4px 0; }
 .kb-miniatura img { display: block; max-width: min(260px, 100%); max-height: 260px; border-radius: 8px; border: 1px solid var(--linha); }
 .kb-player { display: block; width: 100%; max-width: 420px; max-height: 300px; border-radius: 8px; background: #000; margin: 4px 0; }

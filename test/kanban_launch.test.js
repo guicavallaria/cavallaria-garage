@@ -247,6 +247,13 @@ test('rota: envio manual de PDF pelo card e lista de não vinculados', async () 
     const aud = db.prepare("SELECT * FROM auditoria WHERE acao = 'pdf_aberto'").get();
     assert.equal(aud.card_id, card.id);
     assert.equal((await fetch(`${base}/midias/999999/abrir`, { redirect: 'manual' })).status, 404);
+    // botão "Baixar" do card: mesma mídia, mas como anexo (download direto) e auditado
+    const midiaId = lista[0].url.match(/midias\/(\d+)\//)[1];
+    const baixar = await fetch(`${base}/midias/${midiaId}/baixar`, { redirect: 'manual' });
+    assert.equal(baixar.status, 302);
+    assert.match(baixar.headers.get('location'), /response-content-disposition=attachment%3B%20filename%3D%22escaneamento_manual\.pdf%22/);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM auditoria WHERE acao = 'midia_baixada'").get().n, 1);
+    assert.equal((await fetch(`${base}/midias/999999/baixar`, { redirect: 'manual' })).status, 404);
   } finally {
     srv.close();
   }

@@ -38,6 +38,17 @@ const REVERIFICAR_SUMIDA_MIN = 60; // uma OS sumida e não finalizada é conferi
 const CONFIRMAR_INATIVA_MIN = 10;  // fora da Novidades e sem finalização há 10 min = OS inativada
 const MAX_TENTATIVAS_DETALHE = 10;
 
+// Diagnóstico das OS que saíram da Novidades: cada situação de cada card vai uma vez para o log do
+// servidor (por processo), para dar para ver por que um card fica ou sai do quadro. Só número da OS.
+const relatadas = new Map();
+function relatar(relato, empresa, card, situacao, texto) {
+  if (!relato) return;
+  const chave = `${empresa}:${card.id}`;
+  if (relatadas.get(chave) === situacao) return;
+  relatadas.set(chave, situacao);
+  relato.push(`OS ${card.os_numero}: ${texto}`);
+}
+
 // Janela do job: segunda a sexta, 07:00–19:00 (decisão de 23/10/2026).
 const JANELA_KANBAN = { diasSemana: [1, 2, 3, 4, 5], inicioMin: 7 * 60, fimMin: 19 * 60 };
 
@@ -204,8 +215,15 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga, empresa = EMPRESA_PA
 }
 
 // Cards ativos que não apareceram nesta leitura: confere na página da OS se foram finalizados.
-async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMIDAS, avisos, empresa = EMPRESA_PADRAO }) {
+async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMIDAS, avisos, empresa = EMPRESA_PADRAO, relato = null }) {
   const f = criarFuncoes(db, empresa);
+  // Fora da Novidades mas fora da conferência: já finalizada (fica no quadro até a fase 9) ou sem id da OS.
+  for (const c of db.prepare(`SELECT id, os_numero, os_finalizada_em, os_id_interno, fase_id FROM kb_cards
+      WHERE empresa = ? AND arquivado_em IS NULL AND (os_finalizada_em IS NOT NULL OR os_id_interno IS NULL)`).all(empresa)) {
+    if (vistos.has(c.id)) continue;
+    if (c.os_finalizada_em) relatar(relato, empresa, c, 'finalizada', `fora da Novidades, finalizada no Onmotor — fica no quadro (fase ${c.fase_id}) até ir para a fase 9 ou ser arquivada`);
+    else relatar(relato, empresa, c, 'sem_id', 'fora da Novidades sem o id interno da OS — não dá para conferir');
+  }
   const candidatos = db.prepare(`SELECT * FROM kb_cards
       WHERE empresa = ? AND arquivado_em IS NULL AND os_finalizada_em IS NULL AND os_id_interno IS NOT NULL
       ORDER BY COALESCE(os_verificada_em, '') ASC, id ASC`).all(empresa)
@@ -221,11 +239,14 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
       db.prepare('UPDATE kb_cards SET os_sumiu_em = ? WHERE id = ?').run(agora, card.id);
       f.onmotor({ osNumero: card.os_numero, osId: card.os_id_interno, tipo: 'sumiu', payload: { os_numero: card.os_numero }, hash: 'sumiu', agora });
     }
-    if (conferidas >= limite) continue;
+    if (conferidas >= limite) { relatar(relato, empresa, card, 'fila', 'fora da Novidades, na fila de conferência (limite por rodada)'); continue; }
     // Já passou o prazo de confirmação e a última conferência foi antes dele? Confere de novo agora.
     const confirmaEm = Date.parse(card.os_sumiu_em) + CONFIRMAR_INATIVA_MIN * 60_000;
     const confirmar = agoraMs >= confirmaEm && (!card.os_verificada_em || Date.parse(card.os_verificada_em) < confirmaEm);
-    if (!confirmar && card.os_verificada_em && Date.parse(card.os_verificada_em) > limiteMs) continue;
+    if (!confirmar && card.os_verificada_em && Date.parse(card.os_verificada_em) > limiteMs) {
+      relatar(relato, empresa, card, 'espera', `fora da Novidades, conferida em ${formatarBR(card.os_verificada_em)} — confere de novo em até ${REVERIFICAR_SUMIDA_MIN} min`);
+      continue;
+    }
     conferidas++;
     try {
       const os = extrairDadosOS(await client.osHtml(card.os_id_interno));
@@ -234,6 +255,7 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
         const atual = db.prepare('SELECT * FROM kb_cards WHERE id = ?').get(card.id);
         registrarFinalizacao(db, f, atual, spParaUtc(os.finalizadaEm) || agora, agora);
         finalizados++;
+        relatar(relato, empresa, card, 'finalizada', 'saiu da Novidades e a página da OS diz finalizada — marcada como finalizada, fica no quadro');
       } else if (agoraMs >= confirmaEm && !card.auto_arquivar_bloqueado) {
         // Fora da Novidades sem ser finalizada = OS inativada no Onmotor: o card sai do quadro.
         db.prepare(`UPDATE kb_cards SET os_inativada_em = ?, arquivado_em = ?, arquivado_por = 'Sistema', arquivado_motivo = 'automatico',
@@ -242,9 +264,15 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
           { motivo: 'os_inativada' }, agora);
         registrarAuditoria(db, { operador: 'Sistema', acao: 'card_arquivado', cardId: card.id, entidade: 'cards', entidadeId: card.id, detalhes: { origem: 'os_inativada' }, quando: agora });
         inativados++;
+        relatar(relato, empresa, card, 'inativada', 'saiu da Novidades sem finalizar — arquivada (OS inativada)');
+      } else if (card.auto_arquivar_bloqueado) {
+        relatar(relato, empresa, card, 'bloqueado', 'saiu da Novidades sem finalizar, mas o arquivamento automático está bloqueado neste card');
+      } else {
+        relatar(relato, empresa, card, 'aguardando', `saiu da Novidades sem finalizar — arquiva se continuar fora até ${formatarBR(new Date(confirmaEm).toISOString())}`);
       }
     } catch (e) {
       avisos.push(`OS ${card.os_numero} saiu da Novidades e não deu para conferir: ${e.message}`);
+      relatar(relato, empresa, card, 'erro:' + e.message, `saiu da Novidades e não deu para conferir a página da OS: ${e.message}`);
     }
   }
   return { finalizados, inativados };
@@ -333,7 +361,9 @@ async function sincronizarKanban(db, { client, empresa = EMPRESA_PADRAO, agoraFn
       return out;
     })();
 
-    const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos, empresa });
+    const relato = [];
+    const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos, empresa, relato });
+    for (const linha of relato) log(`kanban sync ${empresa}: ${linha}`);
     const arquivados = arquivarFinalizadosNaFase9(db, agora) + sumidas.inativados;
     const detalhes = await enriquecerDetalhes(db, client, { agora, limite: limiteDetalhes, avisos: r.avisos, empresa });
 

@@ -71,11 +71,12 @@ function criarStorage(env = process.env) {
     },
 
     // URL para ver/baixar. `nomeArquivo` vira o nome sugerido no download.
-    async urlVer(chave, { validade = VALIDADE_VER_S, nomeArquivo = null, contentType = null } = {}) {
+    // `baixar` = o navegador salva o arquivo direto em vez de abrir.
+    async urlVer(chave, { validade = VALIDADE_VER_S, nomeArquivo = null, contentType = null, baixar = false } = {}) {
       const cmd = new GetObjectCommand({
         Bucket: cfg.bucket,
         Key: chave,
-        ...(nomeArquivo ? { ResponseContentDisposition: `inline; filename="${String(nomeArquivo).replace(/[^\w.\-]/g, '_')}"` } : {}),
+        ...(nomeArquivo ? { ResponseContentDisposition: `${baixar ? 'attachment' : 'inline'}; filename="${String(nomeArquivo).replace(/[^\w.\-]/g, '_')}"` } : {}),
         ...(contentType ? { ResponseContentType: contentType } : {}),
       });
       return getSignedUrl(publico, cmd, { expiresIn: validade });

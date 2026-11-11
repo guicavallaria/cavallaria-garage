@@ -682,10 +682,17 @@
     texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️',
   };
 
+  // Download direto (rota do app → URL assinada como anexo): sem abrir a foto e "salvar como".
+  const baixarHtml = (m) => `<a class="kb-baixar" href="/api/kanban/midias/${Number(m.id)}/baixar" download>⬇ Baixar</a>`;
+
   function midiaHtml(e) {
     const m = e.midia;
     if (!m) return '';
     if (!m.url) return '<p class="kb-dica">Mídia indisponível (armazenamento não configurado).</p>';
+    return midiaVisualHtml(e, m) + baixarHtml(m);
+  }
+
+  function midiaVisualHtml(e, m) {
     if (m.tipo === 'foto') {
       return `<button type="button" class="kb-miniatura" data-acao="ver-foto" data-url="${esc(m.url)}" aria-label="Ampliar foto">
         <img src="${esc(m.miniatura_url || m.url)}" alt="${esc(e.texto || 'Foto')}" loading="lazy"></button>`;
