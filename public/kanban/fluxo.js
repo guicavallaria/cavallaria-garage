@@ -144,13 +144,14 @@
     a_definir: { rotulo: 'A separar', curto: 'a separar', icone: '🧩' },
     estoque: { rotulo: 'Tem em estoque', curto: 'em estoque', icone: '✔' },
     pedir: { rotulo: 'Para pedir', curto: 'p/ pedir', icone: '🛒' },
-    pedido: { rotulo: 'Pedido feito', curto: 'pedida(s)', icone: '📦' },
+    pedido: { rotulo: 'Pedido feito', curto: 'a chegar', icone: '📦' },
+    chegou: { rotulo: 'Peça chegou', curto: 'chegou', icone: '✅' },
     fora: { rotulo: 'Fora (não aprovada)', curto: 'fora', icone: '✕' },
   };
-  const ORDEM_SIT = ['pedir', 'a_definir', 'pedido', 'estoque', 'fora'];
+  const ORDEM_SIT = ['pedir', 'a_definir', 'pedido', 'chegou', 'estoque', 'fora'];
   const podeSeparar = (ctx) => ['total', 'orcamento'].includes(((ctx.estado() || {}).eu || {}).papel || 'total');
   const contarPecas = (c) => {
-    const n = { a_definir: 0, estoque: 0, pedir: 0, pedido: 0, fora: 0 };
+    const n = { a_definir: 0, estoque: 0, pedir: 0, pedido: 0, chegou: 0, fora: 0 };
     for (const p of c.pecas || []) if (n[p.situacao] !== undefined) n[p.situacao]++;
     return n;
   };
@@ -177,6 +178,7 @@
     const n = contarPecas(c);
     return `<h3 class="kb-sec">Peças — estoque e pedido</h3>
       ${n.pedir ? `<p class="kb-sep-pendente">🛒 <strong>${n.pedir} peça(s) pendente(s) de pedido</strong></p>` : ''}
+      ${n.pedido ? `<p class="kb-sep-chegada">📦 <strong>${n.pedido} peça(s) com pedido feito, aguardando chegada</strong> — o card só segue para o Agendamento quando todas chegarem</p>` : ''}
       ${n.a_definir ? `<p class="kb-sep-aviso">🧩 ${n.a_definir} peça(s) ainda a separar (estoque ou pedido)</p>` : ''}
       ${listaSeparacaoHtml(c) || '<p class="kb-vazio">Nenhuma peça lançada.</p>'}
       ${pode ? `<button type="button" class="kb-botao" data-fluxo-separar="${c.id}">📦 Separar peças (estoque / pedido)</button>` : ''}`;
@@ -209,6 +211,29 @@
         ${pode && total ? `<button type="button" class="kb-botao" data-fluxo-pedidas ${selecionadosPedido.size ? '' : 'disabled'}>✔ Marcar ${selecionadosPedido.size || ''} selecionada(s) como pedida(s)</button>` : ''}</div>
       ${separar}
       ${grupos || '<p class="kb-ctrl-ok">✔ Nenhuma peça pendente de pedido.</p>'}
+    </section>`;
+  }
+
+  // Painel do compras: peças com pedido feito que ainda não chegaram, por veículo. "Peça chegou" libera o card.
+  const selecionadosChegou = new Set();
+  function painelChegada(ctx, cards, agora) {
+    const com = cards.filter((c) => (c.pecas || []).some((p) => p.situacao === 'pedido'));
+    if (!com.length) { selecionadosChegou.clear(); return ''; }
+    const total = com.reduce((s, c) => s + contarPecas(c).pedido, 0);
+    const pode = podeSeparar(ctx);
+    const vivos = new Set(com.flatMap((c) => c.pecas.filter((p) => p.situacao === 'pedido').map((p) => p.id)));
+    for (const id of selecionadosChegou) if (!vivos.has(id)) selecionadosChegou.delete(id);
+    const veiculo = (c) => [c.marca, c.modelo].filter(Boolean).join(' ') || 'Veículo';
+    const grupos = com.map((c) => `<div class="kb-ped-grupo">
+        <div class="kb-ped-veic"><button type="button" class="kb-ped-os" data-abrir-card="${c.id}">${c.empresa === 'awdyna' ? '<span class="kb-selo-empresa">AWDYNA</span> ' : ''}OS ${esc(c.os_numero)}</button>
+          ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''} <span>${esc(veiculo(c))}</span>
+          <small class="kb-ped-fase">${esc(nomeNoSetor(c.fase_id, c.fase_nome || ''))}</small></div>
+        <ul class="kb-ped-itens">${c.pecas.filter((p) => p.situacao === 'pedido').map((p) => `<li><label>${pode ? `<input type="checkbox" data-chegou-id="${p.id}" ${selecionadosChegou.has(p.id) ? 'checked' : ''}>` : ''}
+          <span>${esc(p.descricao)}</span><small>pedida ${haQuanto(agora - Date.parse(p.desde))}</small></label></li>`).join('')}</ul></div>`).join('');
+    return `<section class="kb-pedidos kb-chegada" aria-label="Peças aguardando chegada">
+      <div class="kb-ped-topo"><h2>📦 Aguardando chegada <span class="kb-n">${total}</span></h2>
+        ${pode ? `<button type="button" class="kb-botao" data-fluxo-chegaram ${selecionadosChegou.size ? '' : 'disabled'}>✅ Marcar ${selecionadosChegou.size || ''} selecionada(s): peça chegou</button>` : ''}</div>
+      ${grupos}
     </section>`;
   }
 
@@ -252,7 +277,7 @@
         <div class="kb-g-lista">${lista.length ? lista.map((c) => cardGrande(ctx, c, agora)).join('') : '<p class="kb-vazio">Nenhum card nesta fase.</p>'}</div>
       </section>`;
     }).join('');
-    el.innerHTML = `${visao === 'pecas' ? painelSetor(cards, agora) + painelPedidos(ctx, cards, agora) : avisoAprovacao(cards, agora)}
+    el.innerHTML = `${visao === 'pecas' ? painelSetor(cards, agora) + painelPedidos(ctx, cards, agora) + painelChegada(ctx, cards, agora) : avisoAprovacao(cards, agora)}
       <div class="kb-g-colunas kb-g-${visao}">${colunas}</div>`;
   }
 
@@ -454,7 +479,7 @@
   async function separarPecas(ctx, card, { operador }) {
     const m = caixa();
     const itens = (card.pecas || []).map((p) => ({ id: p.id, descricao: p.descricao, situacao: p.situacao }));
-    const opcoes = ['estoque', 'pedir', 'pedido', 'fora'];
+    const opcoes = ['estoque', 'pedir', 'pedido', 'chegou', 'fora'];
     // peças do orçamento (última solicitação com peças) e dos checklists do card
     let sug = { checklist: [], ultima_solicitacao: [], pdf: [] };
     try { sug = await ctx.api(`/api/kanban/cards/${card.id}/pecas-sugeridas`); } catch (_) { /* segue sem sugestões */ }
@@ -544,5 +569,5 @@
     });
   }
 
-  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
+  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, selecionadosChegou, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
 })();

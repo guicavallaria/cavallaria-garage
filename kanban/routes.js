@@ -207,8 +207,20 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     if (out.alterada) broadcast('kanban');
     return { ok: true, ...out };
   }, log);
+  r.post('/cards/:id/orcamentos/:orcId/pecas', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = pecas.incluirPecaOrcamento(db, req.params.id, req.params.orcId, { descricao: b.descricao, operador: b.operador, papel: papelDe(req) });
+    broadcast('kanban');
+    return { ok: true, ...out };
+  }, log));
   r.put('/cards/:id/orcamentos/:orcId/pecas/:indice', alterarPecaOrc(false));
   r.post('/cards/:id/orcamentos/:orcId/pecas/:indice/remover', alterarPecaOrc(true));
+  r.post('/pecas/chegaram', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = pecas.marcarChegadas(db, b.ids, { operador: b.operador, papel: papelDe(req) });
+    broadcast('kanban');
+    return { ok: true, ...out };
+  }, log));
   r.post('/pecas/pedidas', (req, res) => responder(res, () => {
     const b = req.body || {};
     const out = pecas.marcarPedidas(db, b.ids, { operador: b.operador, papel: papelDe(req) });

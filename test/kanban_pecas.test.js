@@ -98,8 +98,8 @@ test('migração 015: cards já aprovados no setor de peças ganham as peças "a
   const db = banco();
   const { card } = aprovado(db);
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 3), ['017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
-  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js']);
+  assert.deepEqual(reverter(db, undefined, 4), ['018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
+  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js']);
   assert.deepEqual(pecas.listar(db, card.id).map((p) => p.situacao), ['a_definir', 'a_definir', 'a_definir']);
 });
 
@@ -243,4 +243,91 @@ test('peças pedidas para orçamento: editar e excluir uma por vez, com registro
   } finally {
     srv.close();
   }
+});
+
+test('peças pedidas para orçamento: incluir peça nova na solicitação em aberto, com registro', async () => {
+  const db = banco();
+  const c = db.prepare('SELECT * FROM kb_cards WHERE fase_id = 2 ORDER BY id LIMIT 1').get();
+  mover(db, c.id, F.ORCAMENTO, { pecas: PECAS });
+  const orc = () => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
+  const inc = (extra) => pecas.incluirPecaOrcamento(db, c.id, orc().id, { operador: 'Vanilton', ...extra }, { agora: AGORA });
+  const r = inc({ descricao: '  Junta   do cabeçote ' });
+  assert.deepEqual(r.pecas.map((p) => p.descricao), [...PECAS.map((p) => p.descricao), 'Junta do cabeçote']);
+  assert.equal(JSON.parse(orc().pecas)[3].origem, 'manual');
+  const ev = ultimoEvento(db, c.id);
+  assert.equal(ev.texto, 'Peça incluída no orçamento: Junta do cabeçote');
+  assert.equal(ev.operador_nome, 'Vanilton');
+  assert.equal(JSON.parse(ev.dados).acao, 'orcamento_peca_incluida');
+  const linhaTempo = require('../kanban/linha-tempo');
+  assert.throws(() => linhaTempo.removerRegistro(db, ev.id, { operador: 'Vanilton' }), /automáticos/);
+  assert.throws(() => inc({ descricao: '   ' }), /Escreva/);
+  assert.throws(() => inc({ descricao: 'x', papel: 'registro' }), (e) => e.status === 403);
+  // a peça incluída segue para a aprovação e a separação
+  mover(db, c.id, F.APROVACAO, { pdfMidiaId: pdfFalso(db, c.id) });
+  mover(db, c.id, F.AQUISICAO, { papel: 'aprovacao', decisao: 'integral' });
+  assert.ok(pecas.listar(db, c.id).some((p) => p.descricao === 'Junta do cabeçote'));
+  assert.throws(() => inc({ descricao: 'Outra' }), (e) => e.status === 409);
+  // rota
+  const outro = db.prepare('SELECT * FROM kb_cards WHERE fase_id = 2 ORDER BY id LIMIT 1').get();
+  mover(db, outro.id, F.ORCAMENTO, { pecas: PECAS });
+  const o2 = db.prepare('SELECT id FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(outro.id).id;
+  const app = express();
+  app.use(express.json());
+  app.use('/api/kanban', criarRouter({ db, log: () => {}, criarCliente: () => null }));
+  const srv = app.listen(0);
+  try {
+    const res = await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/cards/${outro.id}/orcamentos/${o2}/pecas`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ descricao: 'Retentor traseiro', operador: 'Vanilton' }) });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).pecas.at(-1).descricao, 'Retentor traseiro');
+  } finally {
+    srv.close();
+  }
+});
+
+test('peça chegou: só sai de Aguardando Peças para frente quando nada está "para pedir" ou "pedido feito"', async () => {
+  const db = banco();
+  const { card } = aprovado(db); // Aquisição, 3 peças a separar
+  const [a, b, c] = pecas.listar(db, card.id);
+  pecas.salvar(db, card.id, { operador: 'Cauã', itens: [{ id: a.id, situacao: 'estoque' }, { id: b.id, situacao: 'pedido' }, { id: c.id, situacao: 'pedir' }] }, { agora: AGORA });
+  // da Aquisição direto para o Agendamento: bloqueado
+  assert.throws(() => mover(db, card.id, F.AGENDAMENTO), (e) => e.status === 409 && /Ainda faltam chegar 2 peça\(s\) \(1 com pedido feito\)/.test(e.message) && /Peça chegou/.test(e.message));
+  // ir para Aguardando Peças (com prazo) é permitido
+  mover(db, card.id, F.AGUARDANDO_PECAS, { prazoDias: 3 });
+  assert.throws(() => mover(db, card.id, F.AGENDAMENTO), (e) => e.status === 409);
+  assert.throws(() => mover(db, card.id, F.EXECUCAO), (e) => e.status === 409);
+  pecas.marcarPedidas(db, [c.id], { operador: 'Cauã' }, { agora: AGORA });
+  assert.throws(() => mover(db, card.id, F.AGENDAMENTO), /Ainda faltam chegar 2 peça\(s\) \(2 com pedido feito\)/);
+  // painel: marcar como chegou (só as "pedido feito"), com registro
+  assert.throws(() => pecas.marcarChegadas(db, [a.id], { operador: 'Cauã' }), (e) => e.status === 409);
+  assert.throws(() => pecas.marcarChegadas(db, [b.id], { operador: 'Edson', papel: 'registro' }), (e) => e.status === 403);
+  const r = pecas.marcarChegadas(db, [b.id], { operador: 'Cauã' }, { agora: AGORA });
+  assert.equal(r.marcadas, 1);
+  const pb = db.prepare('SELECT * FROM kb_pecas WHERE id = ?').get(b.id);
+  assert.equal(pb.situacao, 'chegou');
+  assert.equal(pb.chegou_por, 'Cauã');
+  assert.ok(pb.pedido_em, 'guarda quando foi pedida');
+  assert.match(ultimoEvento(db, card.id).texto, /^Peça chegou \(1\):\n• Sensor de ângulo de direção/);
+  // ainda falta a "c" (pedido feito): marcar chegou pela janela de separação
+  assert.throws(() => mover(db, card.id, F.AGENDAMENTO), (e) => e.status === 409);
+  const lista = pecas.listar(db, card.id);
+  pecas.salvar(db, card.id, { operador: 'Cauã', itens: lista.map((p) => ({ id: p.id, situacao: p.id === c.id ? 'chegou' : p.situacao })) }, { agora: AGORA });
+  assert.equal(db.prepare('SELECT chegou_por FROM kb_pecas WHERE id = ?').get(c.id).chegou_por, 'Cauã');
+  const m = mover(db, card.id, F.AGENDAMENTO);
+  assert.equal(m.card.fase_id, F.AGENDAMENTO);
+});
+
+test('peça chegou: voltar do Aguardando Peças para trás continua livre; migração 018 desfaz chegou → pedido', () => {
+  const db = banco();
+  const { card } = aprovado(db);
+  const [a] = pecas.listar(db, card.id);
+  pecas.salvar(db, card.id, { operador: 'Cauã', itens: pecas.listar(db, card.id).map((p) => ({ id: p.id, situacao: 'pedido' })) }, { agora: AGORA });
+  mover(db, card.id, F.AGUARDANDO_PECAS, { prazoDias: 2 });
+  assert.equal(mover(db, card.id, F.AQUISICAO).card.fase_id, F.AQUISICAO);
+  pecas.marcarChegadas(db, [a.id], { operador: 'Cauã' }, { agora: AGORA });
+  const { reverter, aplicar } = require('../migrations');
+  assert.deepEqual(reverter(db), ['018_peca_chegou.js']);
+  assert.equal(db.prepare('SELECT situacao FROM kb_pecas WHERE id = ?').get(a.id).situacao, 'pedido');
+  assert.deepEqual(aplicar(db), ['018_peca_chegou.js']);
+  assert.equal(pecas.listar(db, card.id).length, 3);
 });

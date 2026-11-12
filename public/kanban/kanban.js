@@ -174,6 +174,7 @@
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
         ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
         ${KF.contarPecas(c).pedir ? `<span class="kb-pc kb-pc-pedir" title="Peças pendentes de pedido">🛒 ${KF.contarPecas(c).pedir} p/ pedir</span>` : ''}
+        ${KF.contarPecas(c).pedido ? `<span class="kb-pc kb-pc-pedido" title="Peças com pedido feito, ainda não chegaram">📦 ${KF.contarPecas(c).pedido} a chegar</span>` : ''}
         ${KF.contarPecas(c).a_definir ? `<span class="kb-pc kb-pc-a_definir" title="Peças do orçamento aprovado ainda não separadas">🧩 ${KF.contarPecas(c).a_definir} a separar</span>` : ''}
         ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
@@ -473,7 +474,7 @@
     }
     // As URLs das mídias valem 15 min: com o painel aberto, renova a cada 10 min.
     clearInterval(refrescoUrls);
-    refrescoUrls = setInterval(() => { if (cardAberto && !cardAberto.editando && !cardAberto.pecaOrc) abrirCard(cardAberto.id); }, 10 * 60_000);
+    refrescoUrls = setInterval(() => { if (cardAberto && !cardAberto.editando && !cardAberto.pecaOrc && !cardAberto.novaPecaOrc) abrirCard(cardAberto.id); }, 10 * 60_000);
   }
 
   function renderPainel() {
@@ -514,6 +515,24 @@
       <button type="button" class="kb-link-pequeno" data-acao="orc-peca-editar" ${dados}>editar</button>
       <button type="button" class="kb-link-pequeno" data-acao="orc-peca-excluir" ${dados}>excluir</button></li>`;
   }
+  async function incluirPecaOrc(b) {
+    const ca = cardAberto;
+    const inp = b.closest('.kb-orc-incluir').querySelector('input');
+    const texto = String(inp.value || '').trim();
+    if (!texto) { avisar('Escreva a descrição da peça', true); inp.focus(); return; }
+    const op = await garantirOperador();
+    if (!op) return;
+    b.disabled = true;
+    try {
+      await api(`/api/kanban/cards/${ca.id}/orcamentos/${b.dataset.orc}/pecas`, { json: { descricao: texto, operador: op } });
+      ca.novaPecaOrc = '';
+      avisar('Peça incluída no orçamento');
+      await abrirCard(ca.id);
+      const novo = $('kbOrcamentos') && $('kbOrcamentos').querySelector('.kb-orc-incluir-in');
+      if (novo) novo.focus(); // segue incluindo a próxima
+      carregar();
+    } catch (e) { avisar(e.message, true); b.disabled = false; }
+  }
   async function gravarPecaOrc(b, remover) {
     const ca = cardAberto;
     const o = (ca.orcamentos || []).find((x) => x.id === Number(b.dataset.orc));
@@ -549,6 +568,8 @@
         <div class="kb-orc-topo">${o.solicitado_por ? `Pedido por ${esc(o.solicitado_por)} em ${dataBR(o.solicitado_em)}` : `Desde ${dataBR(o.solicitado_em)}`}
           ${o.decisao ? `<span class="kb-orc-dec kb-orc-${o.decisao}">${DEC[o.decisao]}</span>` : (o.pdf_url ? '<span class="kb-orc-dec">Aguardando aprovação</span>' : '<span class="kb-orc-dec">Em orçamento</span>')}</div>
         ${o.pecas.length ? `<ul class="kb-g-pecas${i === 0 && podeAlterarOrc(o) ? ' kb-orc-pecas' : ''}">${o.pecas.map((p, j) => (i === 0 && podeAlterarOrc(o) ? pecaOrcHtml(o, p, j) : `<li>${esc(p.descricao)}</li>`)).join('')}</ul>` : ''}
+        ${i === 0 && podeAlterarOrc(o) ? `<div class="kb-orc-incluir"><input type="text" class="kb-orc-incluir-in" maxlength="300" placeholder="Nova peça para o orçamento" aria-label="Nova peça para o orçamento" value="${esc(cardAberto.novaPecaOrc || '')}">
+          <button type="button" class="kb-botao kb-botao-sec" data-acao="orc-peca-incluir" data-orc="${o.id}">+ Incluir peça</button></div>` : ''}
         <div class="kb-orc-links">${o.pdf_url ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
           ${o.aprovado_url ? `<a class="kb-aprovado" href="${esc(o.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : ''}</div>
         ${o.decisao_obs ? `<p class="kb-orc-obs">${esc(o.decisao_obs)}${o.decidido_por ? ` — ${esc(o.decidido_por)}` : ''}</p>` : ''}
@@ -1090,6 +1111,7 @@
       }
       case 'orc-peca-cancelar': cardAberto.pecaOrc = null; renderOrcamentos(); break;
       case 'orc-peca-salvar': await gravarPecaOrc(b, false); break;
+      case 'orc-peca-incluir': await incluirPecaOrc(b); break;
       case 'orc-peca-confirmar-excluir': await gravarPecaOrc(b, true); break;
       case 'fila-tentar': M.tentarDeNovo(b.dataset.id); break;
       case 'fila-descartar': M.descartar(b.dataset.id); break;
@@ -1097,6 +1119,12 @@
     }
   });
   $('kbPainelCorpo').addEventListener('keydown', (ev) => {
+    if (ev.target.classList && ev.target.classList.contains('kb-orc-incluir-in') && ev.key === 'Enter') {
+      ev.preventDefault();
+      const s = ev.target.closest('.kb-orc-incluir').querySelector('[data-acao="orc-peca-incluir"]');
+      if (s && !s.disabled) s.click();
+      return;
+    }
     if (!ev.target.classList || !ev.target.classList.contains('kb-orc-peca-in')) return;
     if (ev.key === 'Enter') { ev.preventDefault(); const s = ev.target.closest('li').querySelector('[data-acao="orc-peca-salvar"]'); if (s) s.click(); }
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cardAberto.pecaOrc = null; renderOrcamentos(); }
@@ -1109,6 +1137,7 @@
     if (ev.target.id === 'kbTexto' && cardAberto && cardAberto.compositor) cardAberto.compositor.texto = ev.target.value;
     if (ev.target.id === 'kbLegenda' && cardAberto && cardAberto.compositor) cardAberto.compositor.legenda = ev.target.value;
     if (ev.target.classList.contains('kb-orc-peca-in') && cardAberto && cardAberto.pecaOrc) cardAberto.pecaOrc.texto = ev.target.value;
+    if (ev.target.classList.contains('kb-orc-incluir-in') && cardAberto) cardAberto.novaPecaOrc = ev.target.value;
   });
 
   // Entradas de arquivo (câmera, galeria, áudio). Zeradas depois de ler para permitir escolher o mesmo arquivo de novo.
@@ -1336,11 +1365,34 @@
     }
     await carregar();
   }
+  async function marcarChegadas(btn) {
+    const ids = [...KF.selecionadosChegou];
+    if (!ids.length) return;
+    const op = await garantirOperador();
+    if (!op) return;
+    btn.disabled = true;
+    try {
+      const r = await api('/api/kanban/pecas/chegaram', { json: { operador: op, ids } });
+      KF.selecionadosChegou.clear();
+      avisar(`${r.marcadas} peça(s) marcada(s) como chegou`);
+    } catch (e) {
+      avisar(e.message, true);
+    }
+    await carregar();
+  }
   $('kbPainelCorpo').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-fluxo-separar]');
     if (b) separar(Number(b.dataset.fluxoSeparar));
   });
   $('kbSetor').addEventListener('change', (ev) => {
+    const ch = ev.target.closest('input[data-chegou-id]');
+    if (ch) {
+      const id = Number(ch.dataset.chegouId);
+      if (ch.checked) KF.selecionadosChegou.add(id); else KF.selecionadosChegou.delete(id);
+      const bc = $('kbSetor').querySelector('[data-fluxo-chegaram]');
+      if (bc) { bc.disabled = !KF.selecionadosChegou.size; bc.textContent = `✅ Marcar ${KF.selecionadosChegou.size || ''} selecionada(s): peça chegou`; }
+      return;
+    }
     const cb = ev.target.closest('input[data-pedido-id]');
     if (!cb) return;
     const id = Number(cb.dataset.pedidoId);
@@ -1353,6 +1405,8 @@
     if (sep) { ev.stopPropagation(); separar(Number(sep.dataset.fluxoSeparar)); return; }
     const ped = ev.target.closest('[data-fluxo-pedidas]');
     if (ped) { marcarPedidas(ped); return; }
+    const cheg = ev.target.closest('[data-fluxo-chegaram]');
+    if (cheg) { marcarChegadas(cheg); return; }
     if (ev.target.closest('.kb-ped-itens label')) return; // marcar a peça não abre o card
     const mv = ev.target.closest('[data-fluxo-mover]');
     if (mv) {

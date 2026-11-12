@@ -64,14 +64,14 @@ test('migração 014: papel inicial pelo nome e a conta gerencia move tudo', () 
   const db = bancoDeTeste();
   // desfaz a 014, cria os usuários como estão hoje em produção e aplica de novo
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 4), ['017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js', '014_orcamento_pecas.js']);
+  assert.deepEqual(reverter(db, undefined, 5), ['018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js', '014_orcamento_pecas.js']);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM kb_fases').get().n, 9);
   const ins = db.prepare("INSERT INTO usuarios (login, nome, perfil, senha_hash, criado_em, criado_por) VALUES (?, ?, ?, 'x', '2026-11-11', 't')");
   // contas de setor como estão em produção (compras = Cauã, pátio = Vanilton, recepção = Luan,
   // gerência = Guilherme e Lucas) + um login individual pelo nome + um mecânico
   for (const [l, n, p] of [['recepcao', 'Recepção', 'recepcao'], ['compras', 'Compras', 'compras'], ['patio', 'Pátio', 'patio'],
     ['gerencia', 'Gerência', 'gerencia'], ['edson', 'Edson', 'mecanico'], ['lucas.s', 'Lucas Souza', 'gerencia']]) ins.run(l, n, p);
-  assert.deepEqual(aplicar(db), ['014_orcamento_pecas.js', '015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js']);
+  assert.deepEqual(aplicar(db), ['014_orcamento_pecas.js', '015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js']);
   const papeis = Object.fromEntries(db.prepare('SELECT login, kb_papel FROM usuarios').all().map((u) => [u.login, u.kb_papel]));
   assert.deepEqual(papeis, { recepcao: 'aprovacao', compras: 'orcamento', patio: 'total', gerencia: 'total', edson: 'registro', 'lucas.s': 'total' });
   assert.equal(fluxo.papelDoUsuario(db, null), 'total');

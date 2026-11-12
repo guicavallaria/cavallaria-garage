@@ -105,11 +105,27 @@ Código: `kanban/orcamento-pdf.js` (pdf.js da Mozilla, `pdfjs-dist`), migração
 ## Editar e excluir peças pedidas para orçamento (12/11/2026)
 
 No card, a lista de peças da solicitação **em aberto** (a mais recente, ainda sem decisão da aprovação) mostra
-`editar` e `excluir` em cada item. Cada mudança vira um registro automático na linha do tempo, que não pode ser
-editado nem removido: "Peça do orçamento alterada: de … para …" ou "Peça retirada do orçamento: …".
+`editar` e `excluir` em cada item e, embaixo, o campo **+ Incluir peça**. Enter inclui a peça e deixa o cursor pronto para a próxima. Cada mudança vira um registro automático na linha do tempo, que não pode ser
+editado nem removido: "Peça do orçamento alterada: de … para …" ou "Peça retirada do orçamento: …" ou "Peça incluída no orçamento: …".
 
 - Quem pode: movimentação total, orçamento e peças, aprovação. Quem tem só registros não pode.
 - Orçamentos já decididos (aprovados ou devolvidos) e cards arquivados não mudam. Depois da aprovação, a lista que vale é a da separação de peças.
 - A tela envia a descrição que estava mostrando (`atual`). Se a lista mudou nesse meio-tempo, o servidor responde 409 e pede para recarregar.
 - Rotas: `PUT /api/kanban/cards/:id/orcamentos/:orcId/pecas/:indice` `{descricao, atual, operador}` e
-  `POST …/pecas/:indice/remover` `{atual, operador}` (`kanban/pecas.js` → `alterarPecaOrcamento`).
+  `POST …/pecas/:indice/remover` `{atual, operador}` e `POST /api/kanban/cards/:id/orcamentos/:orcId/pecas` `{descricao, operador}` (incluir → `incluirPecaOrcamento`) (`kanban/pecas.js` → `alterarPecaOrcamento`).
+
+## Peça chegou (12/11/2026)
+
+"Pedido feito" não quer dizer que a peça chegou. Por isso a separação ganhou a situação **✅ Peça chegou** (migração 018, que refaz `kb_pecas` com o novo CHECK e acrescenta `chegou_em` e `chegou_por`). A ordem das situações fica: para pedir → pedido feito → peça chegou.
+
+- **Janela "Separar peças":** tem a opção "Peça chegou" em cada peça e também em "Marcar todas".
+- **Painel do compras:** novo bloco **📦 Aguardando chegada**, com as peças de pedido feito de cada veículo. O compras marca as que chegaram em "✅ Marcar selecionada(s): peça chegou".
+  - Rota: `POST /api/kanban/pecas/chegaram` `{ids, operador}` (função `pecas.marcarChegadas`).
+  - Cada card ganha o registro automático "Peça chegou (N): • …" na linha do tempo.
+- **Cards:** mostram o selo "📦 N a chegar". O painel do card avisa quantas peças estão com pedido feito aguardando chegada.
+- **Regra:** da Separação/Aquisição (fase 5) ou de Aguardando Peças (fase 10), o card só vai **para frente** (Agendamento em diante) quando nenhuma peça está "para pedir" ou "pedido feito".
+  - Senão o servidor responde 409, listando as peças que faltam (`acoes.exigirPecasChegadas`).
+  - Ir da fase 5 para a 10, ou voltar para Aquisição, Aprovação ou Orçamento, continua livre.
+  - A regra vale para todos os papéis, inclusive movimentação total.
+  - Peças "a separar" não bloqueiam.
+- **Desfazer a migração 018:** as peças com "chegou" voltam a "pedido feito".

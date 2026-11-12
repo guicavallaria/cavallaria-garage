@@ -593,3 +593,12 @@ body.kb-em-setor .kb-filtros label.kb-so-pc { display: none !important; } /* a t
 
 /* quilometragem da OS no topo do card aberto */
 .kb-km-topo { display: inline-block; margin-left: 6px; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: #eef0f4; color: var(--texto); vertical-align: middle; }
+.kb-orc-incluir { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.kb-orc-incluir .kb-orc-incluir-in { flex: 1 1 220px; min-width: 0; padding: 6px 8px; font: inherit; font-size: 14px; border: 1px solid #c9ced8; border-radius: 6px; }
+.kb-orc-incluir .kb-botao { padding: 5px 12px; font-size: 13px; }
+
+/* "Peça chegou" (12/11/2026): situação depois de "pedido feito"; bloco "Aguardando chegada" no painel do compras */
+.kb-pc-chegou { background: #dff3e6; color: #1b7a3d; }
+.kb-chegada { border-left-color: var(--azul); }
+.kb-chegada .kb-ped-topo .kb-n { background: var(--azul); }
+.kb-sep-chegada { margin: 6px 0; color: var(--azul); font-size: 14px; }

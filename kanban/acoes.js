@@ -59,6 +59,7 @@ function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas
     const todas = db.prepare('SELECT id FROM kb_fases').all().map((f) => f.id);
     if (!fluxo.podeMover(papel, c.fase_id, destino, todas)) throw new ErroAcao(403, fluxo.mensagemSemPermissao(papel, c.fase_id));
 
+    exigirPecasChegadas(db, c, destino);
     const origem = nomeFase(db, c.fase_id);
     const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, decisao, observacao, prazoDias, agora });
     // Mover libera o bloqueio de auto-arquivamento ligado pelo "Desarquivar". Prazo de peças só vale em Aguardando Peças.
@@ -73,6 +74,21 @@ function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas
     const depois = cardOu404(db, c.id);
     return { card: depois, movido: true, arquivado: Boolean(depois.arquivado_em) };
   })();
+}
+
+// Pedido feito não quer dizer que a peça chegou (Guilherme, 12/11/2026): da Separação/Aquisição ou de
+// Aguardando Peças o card só vai para frente (Agendamento em diante) quando nenhuma peça está
+// "para pedir" ou "pedido feito". Voltar (Aquisição, Aprovação, Orçamento) continua livre.
+function exigirPecasChegadas(db, card, destino) {
+  if (![fluxo.FASE.AQUISICAO, fluxo.FASE.AGUARDANDO_PECAS].includes(card.fase_id)) return;
+  const ordem = (id) => (db.prepare('SELECT ordem FROM kb_fases WHERE id = ?').get(id) || { ordem: 0 }).ordem;
+  if (ordem(destino) <= ordem(fluxo.FASE.AGUARDANDO_PECAS)) return;
+  const falta = require('./pecas').pendentesDeChegada(db, card.id);
+  if (!falta.length) return;
+  const pedidas = falta.filter((p) => p.situacao === 'pedido').length;
+  const lista = falta.slice(0, 5).map((p) => `${p.descricao} (${p.situacao === 'pedido' ? 'pedido feito' : 'para pedir'})`).join('; ');
+  throw new ErroAcao(409, `Ainda falta${falta.length > 1 ? 'm' : ''} chegar ${falta.length} peça(s)${pedidas ? ` (${pedidas} com pedido feito)` : ''}: ${lista}${falta.length > 5 ? '; …' : ''}. `
+    + 'Marque "Peça chegou" na separação de peças antes de tirar o card daqui.', { exige: 'pecas_chegada' });
 }
 
 // ---------- exigências da passagem de fase (kanban/fluxo.js) ----------

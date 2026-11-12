@@ -34,7 +34,7 @@ const TIPOS = {
 };
 const TIPOS_REMOVIVEIS = new Set(['texto', 'foto', 'video', 'audio']);
 // Registros do sistema gravados como texto (separação de peças, pedido feito): não se editam nem removem.
-const ACOES_AUTOMATICAS = new Set(['separacao_pecas', 'pecas_pedidas', 'orcamento_peca_editada', 'orcamento_peca_removida', 'urgente_ativado', 'urgente_desativado']);
+const ACOES_AUTOMATICAS = new Set(['separacao_pecas', 'pecas_pedidas', 'pecas_chegaram', 'orcamento_peca_editada', 'orcamento_peca_removida', 'orcamento_peca_incluida', 'urgente_ativado', 'urgente_desativado']);
 const automatico = (e) => { try { return ACOES_AUTOMATICAS.has((JSON.parse(e.dados || 'null') || {}).acao); } catch (_) { return false; } };
 
 const mimeBase = (m) => String(m || '').split(';')[0].trim().toLowerCase();
