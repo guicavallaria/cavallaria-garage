@@ -33,6 +33,9 @@ const TIPOS = {
   },
 };
 const TIPOS_REMOVIVEIS = new Set(['texto', 'foto', 'video', 'audio']);
+// Registros do sistema gravados como texto (separação de peças, pedido feito): não se editam nem removem.
+const ACOES_AUTOMATICAS = new Set(['separacao_pecas', 'pecas_pedidas']);
+const automatico = (e) => { try { return ACOES_AUTOMATICAS.has((JSON.parse(e.dados || 'null') || {}).acao); } catch (_) { return false; } };
 
 const mimeBase = (m) => String(m || '').split(';')[0].trim().toLowerCase();
 
@@ -71,7 +74,7 @@ function editarTexto(db, eventoId, { texto, operador }, { agora = agoraUtc() } =
   return db.transaction(() => {
     const e = db.prepare('SELECT * FROM kb_eventos WHERE id = ?').get(Number(eventoId));
     if (!e || e.removido_em) throw new ErroAcao(404, 'Registro não encontrado');
-    if (e.tipo !== 'texto') throw new ErroAcao(400, 'Só textos podem ser editados');
+    if (e.tipo !== 'texto' || automatico(e)) throw new ErroAcao(400, 'Só textos podem ser editados');
     cardAtivo(db, e.card_id);
     if (e.texto === t) return e;
     db.prepare(`INSERT INTO kb_eventos_versoes (evento_id, texto_anterior, editado_por, editado_em)
@@ -95,7 +98,7 @@ function removerRegistro(db, eventoId, { operador }, { agora = agoraUtc() } = {}
   return db.transaction(() => {
     const e = db.prepare('SELECT * FROM kb_eventos WHERE id = ?').get(Number(eventoId));
     if (!e || e.removido_em) throw new ErroAcao(404, 'Registro não encontrado');
-    if (!TIPOS_REMOVIVEIS.has(e.tipo)) throw new ErroAcao(400, 'Registros automáticos não podem ser removidos');
+    if (!TIPOS_REMOVIVEIS.has(e.tipo) || automatico(e)) throw new ErroAcao(400, 'Registros automáticos não podem ser removidos');
     cardAtivo(db, e.card_id);
     db.prepare('UPDATE kb_eventos SET removido_em = ?, removido_por = ? WHERE id = ?').run(agora, op, e.id);
     if (e.midia_id) db.prepare('UPDATE kb_midias SET removido_em = ?, removido_por = ? WHERE id = ?').run(agora, op, e.midia_id);
@@ -236,7 +239,7 @@ async function listarEventos(db, storage, cardId) {
     try { dados = e.dados ? JSON.parse(e.dados) : null; } catch (_) { /* dados antigos */ }
     out.push({
       id: e.id, tipo: e.tipo, texto: e.texto, dados, operador_nome: e.operador_nome, criado_em: e.criado_em,
-      editado_em: e.editado_em, versoes: e.versoes, editavel: e.tipo === 'texto', removivel: TIPOS_REMOVIVEIS.has(e.tipo), midia,
+      editado_em: e.editado_em, versoes: e.versoes, editavel: e.tipo === 'texto' && !automatico(e), removivel: TIPOS_REMOVIVEIS.has(e.tipo) && !automatico(e), midia,
     });
   }
   return out;

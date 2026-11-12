@@ -16,6 +16,14 @@
   const diaHora = (iso) => (iso ? fmtDia.format(new Date(iso)).replace(',', '') : '');
 
   // "2d 03h 15min" — tempo na fase nas telas do setor e da aprovação
+  // No setor de compras (tela do Cauã e grupo do quadro geral) a fase 5 se chama "Separação/Aquisição de peças".
+  const NOME_NO_SETOR = { [FASE.AQUISICAO]: 'Separação/Aquisição de peças' };
+  const nomeNoSetor = (id, nome) => NOME_NO_SETOR[id] || nome;
+
+  // Botão "Abrir orçamento aprovado pelo cliente" (cards que já passaram pela aprovação).
+  const botaoAprovado = (c, cls = 'kb-g-pdf') => (c.orcamento && c.orcamento.aprovado_url
+    ? `<a class="${cls} kb-aprovado" href="${esc(c.orcamento.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : '');
+
   function dhm(ms) {
     const total = Math.max(0, Math.floor(ms / 60_000));
     const d = Math.floor(total / 1440);
@@ -68,7 +76,7 @@
       ? `<button type="button" class="kb-botao ${cls}" data-fluxo-mover="${destino}" data-id="${c.id}" ${extra}>${rotulo}</button>` : '');
     if (c.fase_id === FASE.ORCAMENTO) return b(FASE.APROVACAO, '📄 Anexar orçamento → Aprovação');
     if (c.fase_id === FASE.AQUISICAO) return b(FASE.AGUARDANDO_PECAS, '⏳ Aguardando peças (prazo)') + b(FASE.AGENDAMENTO, 'Peças em mãos → Agendamento', '', 'kb-botao-sec');
-    if (c.fase_id === FASE.AGUARDANDO_PECAS) return b(FASE.AGENDAMENTO, '✔ Peças chegaram → Agendamento') + b(FASE.AQUISICAO, '↩ Aquisição', '', 'kb-botao-sec');
+    if (c.fase_id === FASE.AGUARDANDO_PECAS) return b(FASE.AGENDAMENTO, '✔ Peças chegaram → Agendamento') + b(FASE.AQUISICAO, '↩ Separação/Aquisição', '', 'kb-botao-sec');
     if (c.fase_id === FASE.APROVACAO) {
       return b(FASE.AQUISICAO, '✔ Aprovado integral', 'data-decisao="integral"')
         + b(FASE.AQUISICAO, '◐ Aprovado parcial', 'data-decisao="parcial"', 'kb-botao-sec')
@@ -83,6 +91,8 @@
     const pdf = c.orcamento && c.orcamento.pdf_url && c.fase_id === FASE.APROVACAO
       ? `<a class="kb-g-pdf" href="${esc(c.orcamento.pdf_url)}" target="_blank" rel="noopener">📄 Ver orçamento (PDF)</a>` : '';
     const acoes = acoesDoCard(ctx, c);
+    const separar = podeSeparar(ctx) && ([FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id) || (c.pecas || []).length) && c.fase_id !== FASE.APROVACAO
+      ? `<button type="button" class="kb-botao${contarPecas(c).a_definir || !(c.pecas || []).length ? '' : ' kb-botao-sec'}" data-fluxo-separar="${c.id}">📦 Separar peças</button>` : '';
     return `<article class="kb-g-card${motivo ? ' kb-piscar' : ''}" data-abrir-card="${c.id}" tabindex="0" role="button"
         aria-label="OS ${esc(c.os_numero)}${motivo ? ` — ${esc(motivo)}` : ''}">
       <div class="kb-g-l1">
@@ -93,9 +103,10 @@
       <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
       ${motivo ? `<div class="kb-g-alerta">⚠ ${esc(motivo)}</div>` : ''}
       ${resumoPrazo(c, agora)}
-      ${pecasHtml(c)}
+      ${(c.pecas || []).length ? chipsPecas(c) + listaSeparacaoHtml(c, 6) : pecasHtml(c)}
       ${pdf}
-      ${acoes ? `<div class="kb-g-acoes">${acoes}</div>` : ''}
+      ${botaoAprovado(c)}
+      ${acoes || separar ? `<div class="kb-g-acoes">${separar}${acoes}</div>` : ''}
     </article>`;
   }
 
@@ -108,15 +119,89 @@
     const bloco = (titulo, lista, texto, cls) => (lista.length
       ? `<div class="kb-alerta-bloco ${cls}"><strong>${titulo} <span class="kb-n">${lista.length}</span></strong><div>${chipsOS(lista, agora, texto)}</div></div>` : '');
     const alertas = bloco('⏰ Prazo de peças vencido', a.vencidos, (c, t) => `vencido há ${dhm(t - Date.parse(c.pecas_prazo_em))}`, 'kb-alerta-forte')
-      + bloco('⛔ Sem movimentação entre fases (+1 dia)', a.parados, (c, t) => `${dhm(naFase(c, t))} em ${c.fase_id === FASE.ORCAMENTO ? 'Orçamento' : 'Aquisição'}`, 'kb-alerta-forte')
+      + bloco('⛔ Sem movimentação entre fases (+1 dia)', a.parados, (c, t) => `${dhm(naFase(c, t))} em ${c.fase_id === FASE.ORCAMENTO ? 'Orçamento' : 'Separação/Aquisição'}`, 'kb-alerta-forte')
       + bloco('💤 Sem evolução (nenhum registro há +24 h)', a.semEvolucao, (c, t) => `último registro há ${dhm(t - Date.parse(c.ultimo_evento_em || c.fase_desde))}`, 'kb-alerta-medio');
     return `<section class="kb-painel-ctrl" aria-label="Painel de controle do setor de peças">
       <div class="kb-ctrl-numeros">
         <div class="kb-ctrl-num"><span>${n(FASE.ORCAMENTO)}</span>Orçamento</div>
-        <div class="kb-ctrl-num"><span>${n(FASE.AQUISICAO)}</span>Aquisição de Peças</div>
+        <div class="kb-ctrl-num"><span>${n(FASE.AQUISICAO)}</span>Separação/Aquisição de peças</div>
         <div class="kb-ctrl-num"><span>${n(FASE.AGUARDANDO_PECAS)}</span>Aguardando Peças</div>
+        <div class="kb-ctrl-num kb-ctrl-pedir"><span>${cards.reduce((s, c) => s + contarPecas(c).pedir, 0)}</span>Peças para pedir</div>
       </div>
       ${alertas || '<p class="kb-ctrl-ok">✔ Nenhum alerta: nada vencido, parado ou sem evolução.</p>'}
+    </section>`;
+  }
+
+// ---------- separação das peças do orçamento aprovado (estoque / pedido) ----------
+  const SIT = {
+    a_definir: { rotulo: 'A separar', curto: 'a separar', icone: '🧩' },
+    estoque: { rotulo: 'Tem em estoque', curto: 'em estoque', icone: '✔' },
+    pedir: { rotulo: 'Para pedir', curto: 'p/ pedir', icone: '🛒' },
+    pedido: { rotulo: 'Pedido feito', curto: 'pedida(s)', icone: '📦' },
+    fora: { rotulo: 'Fora (não aprovada)', curto: 'fora', icone: '✕' },
+  };
+  const ORDEM_SIT = ['pedir', 'a_definir', 'pedido', 'estoque', 'fora'];
+  const podeSeparar = (ctx) => ['total', 'orcamento'].includes(((ctx.estado() || {}).eu || {}).papel || 'total');
+  const contarPecas = (c) => {
+    const n = { a_definir: 0, estoque: 0, pedir: 0, pedido: 0, fora: 0 };
+    for (const p of c.pecas || []) if (n[p.situacao] !== undefined) n[p.situacao]++;
+    return n;
+  };
+  // "3 p/ pedir · 2 em estoque · 1 a separar"
+  function chipsPecas(c) {
+    const n = contarPecas(c);
+    const ch = ORDEM_SIT.filter((s) => n[s] && s !== 'fora')
+      .map((s) => `<span class="kb-pc kb-pc-${s}">${SIT[s].icone} ${n[s]} ${SIT[s].curto}</span>`).join('');
+    return ch ? `<div class="kb-pc-chips">${ch}</div>` : '';
+  }
+  // Lista da separação (card grande e painel do card): cada peça com a sua situação.
+  function listaSeparacaoHtml(c, max = 99) {
+    const p = (c.pecas || []).slice().sort((a, b) => ORDEM_SIT.indexOf(a.situacao) - ORDEM_SIT.indexOf(b.situacao));
+    if (!p.length) return '';
+    const mais = p.length > max ? `<li class="kb-g-mais">+ ${p.length - max} peça(s)</li>` : '';
+    return `<ul class="kb-sep-lista">${p.slice(0, max).map((x) => `<li class="kb-sep-${x.situacao}"><span>${esc(x.descricao)}</span>
+      <span class="kb-pc kb-pc-${x.situacao}">${SIT[x.situacao].icone} ${SIT[x.situacao].rotulo}</span></li>`).join('')}${mais}</ul>`;
+  }
+  // Seção "Peças" do painel do card
+  function pecasPainelHtml(ctx, c) {
+    const lista = c.pecas || [];
+    const pode = podeSeparar(ctx);
+    if (!lista.length && !(pode && [FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id))) return '';
+    const n = contarPecas(c);
+    return `<h3 class="kb-sec">Peças — estoque e pedido</h3>
+      ${n.pedir ? `<p class="kb-sep-pendente">🛒 <strong>${n.pedir} peça(s) pendente(s) de pedido</strong></p>` : ''}
+      ${n.a_definir ? `<p class="kb-sep-aviso">🧩 ${n.a_definir} peça(s) ainda a separar (estoque ou pedido)</p>` : ''}
+      ${listaSeparacaoHtml(c) || '<p class="kb-vazio">Nenhuma peça lançada.</p>'}
+      ${pode ? `<button type="button" class="kb-botao" data-fluxo-separar="${c.id}">📦 Separar peças (estoque / pedido)</button>` : ''}`;
+  }
+
+  // Painel do compras: todas as peças pendentes de pedido, por veículo.
+  const haQuanto = (ms) => (ms < 60_000 ? 'agora' : `há ${dhm(ms)}`);
+  const selecionadosPedido = new Set();
+  function painelPedidos(ctx, cards, agora) {
+    const comPedir = cards.filter((c) => (c.pecas || []).some((p) => p.situacao === 'pedir'));
+    const aSeparar = cards.filter((c) => (c.pecas || []).some((p) => p.situacao === 'a_definir'));
+    const total = comPedir.reduce((s, c) => s + contarPecas(c).pedir, 0);
+    const pode = podeSeparar(ctx);
+    const vivos = new Set(comPedir.flatMap((c) => c.pecas.filter((p) => p.situacao === 'pedir').map((p) => p.id)));
+    for (const id of selecionadosPedido) if (!vivos.has(id)) selecionadosPedido.delete(id);
+    const veiculo = (c) => [c.marca, c.modelo].filter(Boolean).join(' ') || 'Veículo';
+    const separar = aSeparar.length ? `<div class="kb-alerta-bloco kb-alerta-medio"><strong>🧩 Orçamento aprovado com peças a separar <span class="kb-n">${aSeparar.length}</span></strong>
+      <div>${aSeparar.map((c) => `<button type="button" class="kb-chip-os" ${pode ? `data-fluxo-separar="${c.id}"` : `data-abrir-card="${c.id}"`}>OS ${esc(c.os_numero)} <small>${contarPecas(c).a_definir} peça(s)</small></button>`).join('')}</div></div>` : '';
+    const grupos = comPedir.map((c) => {
+      const itens = c.pecas.filter((p) => p.situacao === 'pedir');
+      return `<div class="kb-ped-grupo">
+        <div class="kb-ped-veic"><button type="button" class="kb-ped-os" data-abrir-card="${c.id}">${c.empresa === 'awdyna' ? '<span class="kb-selo-empresa">AWDYNA</span> ' : ''}OS ${esc(c.os_numero)}</button>
+          ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''} <span>${esc(veiculo(c))}</span>
+          <small class="kb-ped-fase">${esc(nomeNoSetor(c.fase_id, c.fase_nome || ''))}</small></div>
+        <ul class="kb-ped-itens">${itens.map((p) => `<li><label>${pode ? `<input type="checkbox" data-pedido-id="${p.id}" ${selecionadosPedido.has(p.id) ? 'checked' : ''}>` : ''}
+          <span>${esc(p.descricao)}</span><small>${haQuanto(agora - Date.parse(p.desde))}</small></label></li>`).join('')}</ul></div>`;
+    }).join('');
+    return `<section class="kb-pedidos" aria-label="Peças pendentes de pedido">
+      <div class="kb-ped-topo"><h2>🛒 Peças pendentes de pedido <span class="kb-n">${total}</span></h2>
+        ${pode && total ? `<button type="button" class="kb-botao" data-fluxo-pedidas ${selecionadosPedido.size ? '' : 'disabled'}>✔ Marcar ${selecionadosPedido.size || ''} selecionada(s) como pedida(s)</button>` : ''}</div>
+      ${separar}
+      ${grupos || '<p class="kb-ctrl-ok">✔ Nenhuma peça pendente de pedido.</p>'}
     </section>`;
   }
 
@@ -152,7 +237,7 @@
     const est = ctx.estado();
     const agora = Date.now();
     const v = VISOES[visao];
-    const nome = (id) => (est.fases.find((f) => f.id === id) || {}).nome || '';
+    const nome = (id) => (visao === 'pecas' ? nomeNoSetor(id, '') : '') || (est.fases.find((f) => f.id === id) || {}).nome || '';
     const colunas = v.fases.map((f) => {
       const lista = cards.filter((c) => c.fase_id === f); // já vêm do mais antigo na fase para o mais novo
       return `<section class="kb-g-coluna" data-fase="${f}" aria-label="${esc(nome(f))}">
@@ -160,7 +245,7 @@
         <div class="kb-g-lista">${lista.length ? lista.map((c) => cardGrande(ctx, c, agora)).join('') : '<p class="kb-vazio">Nenhum card nesta fase.</p>'}</div>
       </section>`;
     }).join('');
-    el.innerHTML = `${visao === 'pecas' ? painelSetor(cards, agora) : avisoAprovacao(cards, agora)}
+    el.innerHTML = `${visao === 'pecas' ? painelSetor(cards, agora) + painelPedidos(ctx, cards, agora) : avisoAprovacao(cards, agora)}
       <div class="kb-g-colunas kb-g-${visao}">${colunas}</div>`;
   }
 
@@ -225,9 +310,9 @@
         if (exige.includes('aprovacao')) {
           corpo += `<fieldset class="kb-opcoes"><legend>Como o cliente aprovou?</legend>
             <label><input type="radio" name="dec" value="integral" ${decisao === 'integral' ? 'checked' : ''}> <strong>Aprovado integralmente</strong><small>mantém o orçamento como está</small></label>
-            <label><input type="radio" name="dec" value="parcial" ${decisao === 'parcial' ? 'checked' : ''}> <strong>Aprovado parcialmente</strong><small>anexe a nova via do cliente em PDF</small></label>
+            <label><input type="radio" name="dec" value="parcial" ${decisao === 'parcial' ? 'checked' : ''}> <strong>Aprovado parcialmente</strong><small>anexe o orçamento aprovado pelo cliente em PDF</small></label>
           </fieldset>
-          <label class="kb-campo" ${decisao === 'parcial' ? '' : 'hidden'} data-via>Nova via do cliente (PDF) <input type="file" accept="application/pdf,.pdf" data-arq="via"></label>`;
+          <label class="kb-campo" ${decisao === 'parcial' ? '' : 'hidden'} data-via>Orçamento aprovado pelo cliente (PDF) <input type="file" accept="application/pdf,.pdf" data-arq="via"></label>`;
         }
         if (exige.includes('pecas')) {
           corpo += `<p class="kb-modal-dica">${devolucao ? 'As peças da solicitação anterior já estão na lista: ajuste se precisar.' : 'Informe as peças que o orçamento deve cotar. Obrigatório para todo card que entra em Orçamento.'}</p>
@@ -307,7 +392,7 @@
             extras.decisao = decisao;
             if (decisao === 'parcial') {
               const f = m.querySelector('[data-arq="via"]').files[0];
-              if (!ehPdf(f)) throw new Error('Anexe a nova via do cliente em PDF');
+              if (!ehPdf(f)) throw new Error('Anexe o orçamento aprovado pelo cliente em PDF');
               extras.via = f;
             }
           }
@@ -357,5 +442,83 @@
     });
   }
 
-  window.KanbanFluxo = { FASE, VISOES, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
+// Janela "Separar peças": cada peça do orçamento aprovado vira estoque / para pedir / pedido / fora.
+  // Devolve a resposta do servidor ou null (cancelou).
+  async function separarPecas(ctx, card, { operador }) {
+    const m = caixa();
+    const itens = (card.pecas || []).map((p) => ({ id: p.id, descricao: p.descricao, situacao: p.situacao }));
+    const opcoes = ['estoque', 'pedir', 'pedido', 'fora'];
+    return new Promise((resolve) => {
+      function fechar(valor) {
+        m.hidden = true;
+        m.innerHTML = '';
+        m.onclick = null; m.onsubmit = null; m.onchange = null; m.onkeydown = null;
+        resolve(valor);
+      }
+      function desenhar(erro = '') {
+        const n = itens.filter((i) => i.situacao === 'a_definir').length;
+        m.innerHTML = `<form class="kb-modal-caixa kb-modal-fluxo kb-modal-separar">
+          <h2>Separar peças</h2>
+          <p class="kb-modal-dica">OS ${esc(card.os_numero)}${card.placa ? ` · ${esc(card.placa)}` : ''} — marque o que tem em estoque e o que precisa pedir.
+            As "para pedir" entram no painel de peças pendentes de pedido.</p>
+          ${itens.length ? `<div class="kb-sep-todos">Marcar todas: ${opcoes.map((s) => `<button type="button" class="kb-botao kb-botao-sec" data-todas="${s}">${SIT[s].icone} ${SIT[s].rotulo}</button>`).join('')}</div>` : ''}
+          <ul class="kb-sep-edit">${itens.length ? itens.map((it, i) => `<li>
+            <div class="kb-sep-nome">${esc(it.descricao)}${it.id ? '' : ' <small>incluída agora</small>'}
+              ${it.id ? '' : `<button type="button" class="kb-x" data-tirar="${i}" aria-label="Tirar ${esc(it.descricao)}">✕</button>`}</div>
+            <div class="kb-sep-opcoes" role="radiogroup" aria-label="Situação de ${esc(it.descricao)}">${opcoes.map((s) => `<label class="kb-sep-op kb-pc-${s}">
+              <input type="radio" name="sit${i}" value="${s}" data-i="${i}" ${it.situacao === s ? 'checked' : ''}> ${SIT[s].icone} ${SIT[s].rotulo}</label>`).join('')}</div>
+          </li>`).join('') : '<li class="kb-vazio">Nenhuma peça veio do orçamento aprovado. Inclua abaixo.</li>'}</ul>
+          <div class="kb-add-peca"><input type="text" maxlength="300" placeholder="Incluir peça que não estava no orçamento" data-nova aria-label="Nova peça">
+            <button type="button" class="kb-botao" data-add>+ Incluir</button></div>
+          ${n ? `<p class="kb-modal-dica">🧩 Falta separar ${n} peça(s). Dá para gravar assim e terminar depois.</p>` : ''}
+          ${erro ? `<p class="kb-erro-form" role="alert">${esc(erro)}</p>` : ''}
+          <div class="kb-modal-acoes">
+            <button type="button" class="kb-botao kb-botao-sec" data-cancelar>Cancelar</button>
+            <button type="submit" class="kb-botao">Gravar</button>
+          </div></form>`;
+      }
+      const incluir = () => {
+        const inp = m.querySelector('[data-nova]');
+        const d = inp.value.replace(/\s+/g, ' ').trim();
+        if (!d) { inp.focus(); return; }
+        itens.push({ id: null, descricao: d, situacao: 'pedir' });
+        desenhar();
+        m.querySelector('[data-nova]').focus();
+      };
+      m.onchange = (ev) => {
+        const r = ev.target.closest('input[type="radio"][data-i]');
+        if (r) itens[Number(r.dataset.i)].situacao = r.value;
+      };
+      m.onclick = (ev) => {
+        const b = ev.target.closest('button');
+        if (!b) return;
+        if (b.hasAttribute('data-cancelar')) fechar(null);
+        else if (b.hasAttribute('data-add')) incluir();
+        else if (b.dataset.todas) { for (const it of itens) it.situacao = b.dataset.todas; desenhar(); }
+        else if (b.dataset.tirar !== undefined) { itens.splice(Number(b.dataset.tirar), 1); desenhar(); }
+      };
+      m.onkeydown = (ev) => {
+        if (ev.key === 'Enter' && ev.target.matches('[data-nova]')) { ev.preventDefault(); incluir(); }
+        if (ev.key === 'Escape') fechar(null);
+      };
+      m.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const btn = m.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Gravando…';
+        try {
+          const r = await ctx.api(`/api/kanban/cards/${card.id}/pecas`, { method: 'PUT', json: { operador, itens } });
+          fechar(r);
+        } catch (e) {
+          desenhar(e.message);
+        }
+      };
+      desenhar();
+      m.hidden = false;
+      const foco = m.querySelector('input[type="radio"]:checked, input[type="radio"], [data-nova]');
+      if (foco) foco.focus();
+    });
+  }
+
+  window.KanbanFluxo = { FASE, VISOES, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
 })();

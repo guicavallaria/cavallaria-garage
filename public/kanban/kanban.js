@@ -171,10 +171,13 @@
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
         ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
+        ${KF.contarPecas(c).pedir ? `<span class="kb-pc kb-pc-pedir" title="Peças pendentes de pedido">🛒 ${KF.contarPecas(c).pedir} p/ pedir</span>` : ''}
+        ${KF.contarPecas(c).a_definir ? `<span class="kb-pc kb-pc-a_definir" title="Peças do orçamento aprovado ainda não separadas">🧩 ${KF.contarPecas(c).a_definir} a separar</span>` : ''}
         ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
       ${!c.os_finalizada_em && c.os_sumiu_em ? '<span class="kb-selo kb-selo-sumiu">Saiu da Novidades do Onmotor</span>' : ''}
+      ${KF.botaoAprovado(c, 'kb-card-aprovado')}
     </div>`;
   }
 
@@ -253,7 +256,7 @@
             ${col.fases.map((f) => `<span><strong>${porFase.get(f).length}</strong> ${esc(nomeFase(f))}</span>`).join('')}
             ${nAlertas ? `<span class="kb-grupo-alerta">⚠ ${nAlertas} com alerta</span>` : ''}
             <em>Abrir painel do setor →</em></button>`
-          + col.fases.map((f) => (porFase.get(f).length ? `<div class="kb-sub-fase">${esc(nomeFase(f))}</div>${porFase.get(f).map((c) => cardHtml(c, agora)).join('')}` : '')).join('');
+          + col.fases.map((f) => (porFase.get(f).length ? `<div class="kb-sub-fase">${esc(KF.nomeNoSetor(f, nomeFase(f)))}</div>${porFase.get(f).map((c) => cardHtml(c, agora)).join('')}` : '')).join('');
       } else {
         const lista = porFase.get(col.id);
         if (estado.fluxo && col.id === estado.fluxo.aprovacao) botao = '<button type="button" class="kb-abrir-visao" data-visao="aprovacao" title="Abrir a tela da aprovação de orçamento">⤢</button>';
@@ -486,7 +489,8 @@
     const el = $('kbOrcamentos');
     if (!el || !cardAberto) return;
     const lista = cardAberto.orcamentos || [];
-    if (!lista.length) { el.innerHTML = ''; return; }
+    const pecasHtml = cardAberto.card ? KF.pecasPainelHtml(ctxFluxo, cardAberto.card) : '';
+    if (!lista.length) { el.innerHTML = pecasHtml; return; }
     const DEC = { integral: 'Aprovado integralmente', parcial: 'Aprovado parcialmente', devolvido: 'Devolvido ao Orçamento' };
     el.innerHTML = `<h3 class="kb-sec">Orçamento${lista.length > 1 ? `s (${lista.length})` : ''}</h3>` + lista.map((o, i) => `
       <div class="kb-orc${i ? ' kb-orc-antigo' : ''}">
@@ -494,9 +498,9 @@
           ${o.decisao ? `<span class="kb-orc-dec kb-orc-${o.decisao}">${DEC[o.decisao]}</span>` : (o.pdf_url ? '<span class="kb-orc-dec">Aguardando aprovação</span>' : '<span class="kb-orc-dec">Em orçamento</span>')}</div>
         ${o.pecas.length ? `<ul class="kb-g-pecas">${o.pecas.map((p) => `<li>${esc(p.descricao)}</li>`).join('')}</ul>` : ''}
         <div class="kb-orc-links">${o.pdf_url ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
-          ${o.via_cliente_url ? `<a href="${esc(o.via_cliente_url)}" target="_blank" rel="noopener">📄 Nova via do cliente</a>` : ''}</div>
+          ${o.aprovado_url ? `<a class="kb-aprovado" href="${esc(o.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : ''}</div>
         ${o.decisao_obs ? `<p class="kb-orc-obs">${esc(o.decisao_obs)}${o.decidido_por ? ` — ${esc(o.decidido_por)}` : ''}</p>` : ''}
-      </div>`).join('');
+      </div>`).join('') + pecasHtml;
   }
 
   // ---------- checklists do card (Etapa 4: vistoria de entrada) ----------
@@ -1221,7 +1225,50 @@
     ev.stopPropagation();
     trocarVisao(b.dataset.visao);
   }, true);
+  async function separar(id) {
+    const c = (cardAberto && cardAberto.id === id && cardAberto.card) || estado.cards.find((x) => x.id === id);
+    if (!c) return;
+    const op = await garantirOperador();
+    if (!op) return;
+    const r = await KF.separarPecas(ctxFluxo, c, { operador: op });
+    if (!r) return;
+    avisar(r.alteradas ? `OS ${c.os_numero}: separação de peças gravada` : 'Nada mudou');
+    await carregar();
+    if (cardAberto && cardAberto.id === id) abrirCard(id);
+  }
+  async function marcarPedidas(btn) {
+    const ids = [...KF.selecionadosPedido];
+    if (!ids.length) return;
+    const op = await garantirOperador();
+    if (!op) return;
+    btn.disabled = true;
+    try {
+      const r = await api('/api/kanban/pecas/pedidas', { json: { operador: op, ids } });
+      KF.selecionadosPedido.clear();
+      avisar(`${r.marcadas} peça(s) marcada(s) como pedida(s)`);
+    } catch (e) {
+      avisar(e.message, true);
+    }
+    await carregar();
+  }
+  $('kbPainelCorpo').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-fluxo-separar]');
+    if (b) separar(Number(b.dataset.fluxoSeparar));
+  });
+  $('kbSetor').addEventListener('change', (ev) => {
+    const cb = ev.target.closest('input[data-pedido-id]');
+    if (!cb) return;
+    const id = Number(cb.dataset.pedidoId);
+    if (cb.checked) KF.selecionadosPedido.add(id); else KF.selecionadosPedido.delete(id);
+    const b = $('kbSetor').querySelector('[data-fluxo-pedidas]');
+    if (b) { b.disabled = !KF.selecionadosPedido.size; b.textContent = `✔ Marcar ${KF.selecionadosPedido.size || ''} selecionada(s) como pedida(s)`; }
+  });
   $('kbSetor').addEventListener('click', async (ev) => {
+    const sep = ev.target.closest('[data-fluxo-separar]');
+    if (sep) { ev.stopPropagation(); separar(Number(sep.dataset.fluxoSeparar)); return; }
+    const ped = ev.target.closest('[data-fluxo-pedidas]');
+    if (ped) { marcarPedidas(ped); return; }
+    if (ev.target.closest('.kb-ped-itens label')) return; // marcar a peça não abre o card
     const mv = ev.target.closest('[data-fluxo-mover]');
     if (mv) {
       const c = estado.cards.find((x) => x.id === Number(mv.dataset.id));
@@ -1248,11 +1295,13 @@
 
   // ---------- abrir card: clique ou Enter ----------
   $('kbQuadro').addEventListener('click', (ev) => {
+    if (ev.target.closest('a')) return; // link do PDF dentro do card
     const card = ev.target.closest('.kb-card');
     if (card) abrirCard(card.dataset.id);
   });
   $('kbQuadro').addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    if (ev.target.closest('a')) return; // Enter no link do PDF abre o PDF
     const card = ev.target.closest('.kb-card');
     if (!card) return;
     ev.preventDefault();

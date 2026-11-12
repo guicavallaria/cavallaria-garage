@@ -118,12 +118,14 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, 
   if (exige.includes('aprovacao')) {
     if (!['integral', 'parcial'].includes(decisao)) throw new ErroAcao(400, 'Escolha: orçamento aprovado integralmente ou parcialmente', { exige: 'aprovacao' });
     const obs = validarObservacao(observacao, false);
-    const via = decisao === 'parcial' ? pdfDoCard(db, card, pdfMidiaId, 'da nova via do cliente (aprovação parcial)') : null;
+    const via = decisao === 'parcial' ? pdfDoCard(db, card, pdfMidiaId, 'do orçamento aprovado pelo cliente (aprovação parcial)') : null;
     let orc = orcamentoAberto(db, card.id);
     if (!orc) orc = { id: db.prepare("INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, '[]', ?)").run(card.id, agora).lastInsertRowid };
     db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
       .run(decisao, obs, via ? via.id : null, op, agora, orc.id);
-    textos.push(decisao === 'integral' ? 'Orçamento aprovado integralmente.' : 'Orçamento aprovado parcialmente — nova via do cliente anexada.');
+    // peças do orçamento aprovado entram "a separar" para o compras (estoque / pedido)
+    require('./pecas').semearDaAprovacao(db, card, db.prepare('SELECT * FROM kb_orcamentos WHERE id = ?').get(orc.id), { op, agora });
+    textos.push(decisao === 'integral' ? 'Orçamento aprovado integralmente.' : 'Orçamento aprovado parcialmente — anexado o orçamento aprovado pelo cliente.');
     if (obs) textos.push(`Observação: ${obs}`);
     Object.assign(out.dados, { orcamento_id: orc.id, decisao, observacao: obs });
     if (via) out.midiaId = via.id;

@@ -9,7 +9,7 @@
 // As exigências valem para todos, inclusive para quem move tudo:
 //   entrar em Orçamento        → lista das peças a orçar (do checklist e/ou digitadas)
 //   entrar em Aprovação        → PDF do orçamento
-//   Aprovação → Aquisição      → aprovado integral, ou parcial com o PDF da nova via do cliente
+//   Aprovação → Aquisição      → aprovado integral, ou parcial com o PDF do orçamento aprovado pelo cliente
 //   Aprovação → Orçamento      → observação do motivo + peças (vêm as da solicitação anterior)
 //   entrar em Aguardando Peças → prazo em dias para as peças chegarem
 const FASE = {

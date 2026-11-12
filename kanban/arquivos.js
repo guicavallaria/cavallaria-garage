@@ -14,7 +14,7 @@ function nomeDoPdf(db, midiaId) {
   const l = db.prepare('SELECT nome_arquivo FROM launch_relatorios WHERE midia_id = ?').get(Number(midiaId));
   if (l) return l.nome_arquivo;
   const m = db.prepare('SELECT legenda FROM kb_midias WHERE id = ?').get(Number(midiaId));
-  if (m && /\.pdf$/i.test(m.legenda || '')) return m.legenda; // orçamento / via do cliente
+  if (m && /\.pdf$/i.test(m.legenda || '')) return m.legenda; // orçamento / orçamento aprovado pelo cliente
   return `documento-${midiaId}.pdf`;
 }
 
@@ -53,10 +53,10 @@ async function urlParaBaixar(db, storage, midiaId) {
   return { url, midia: m };
 }
 
-// PDF do orçamento (Cauã) ou da nova via do cliente (Luan, aprovação parcial). Vai da memória do
+// PDF do orçamento (Cauã) ou do orçamento aprovado pelo cliente (Luan, aprovação parcial). Vai da memória do
 // servidor direto para o bucket e fica ligado ao card; só aparece na linha do tempo quando o card
 // muda de fase com ele (o evento de fase leva o PDF).
-const TIPOS_PDF_CARD = { orcamento: 'orcamento', via_cliente: 'via-cliente' };
+const TIPOS_PDF_CARD = { orcamento: 'orcamento', via_cliente: 'orcamento-aprovado-cliente' };
 async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, agora = new Date().toISOString() }) {
   if (!storage || !storage.configurado) throw new ErroAcao(503, 'Armazenamento de mídia não configurado');
   if (!TIPOS_PDF_CARD[tipo]) throw new ErroAcao(400, 'Tipo de PDF inválido');

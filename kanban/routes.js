@@ -16,6 +16,7 @@ const arquivos = require('./arquivos');
 const perfis = require('../acesso/perfis');
 const auditoria = require('../acesso/auditoria');
 const fluxo = require('./fluxo');
+const pecas = require('./pecas');
 
 // Login de mecânico assina tudo com o próprio nome: o operador (e o "feito por" do checklist)
 // vem da sessão, nunca do que o navegador mandou. Os demais perfis são contas de setor,
@@ -50,7 +51,10 @@ const SQL_CARDS = `
          (SELECT MAX(e.criado_em) FROM kb_eventos e WHERE e.card_id = c.id AND e.removido_em IS NULL) AS ultimo_evento_em,
          (SELECT o.pecas FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pecas,
          (SELECT o.pdf_midia_id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pdf,
-         (SELECT o.decisao FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_decisao
+         (SELECT o.decisao FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_decisao,
+         (SELECT o.via_cliente_midia_id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_via,
+         (SELECT json_group_array(json_object('id', p.id, 'descricao', p.descricao, 'situacao', p.situacao, 'desde', COALESCE(p.atualizado_em, p.criado_em)))
+            FROM (SELECT * FROM kb_pecas WHERE card_id = c.id AND removido_em IS NULL ORDER BY id) p) AS pecas_json
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -85,8 +89,22 @@ function resumoCard(c) {
     pecas_prazo_dias: c.pecas_prazo_dias ?? null,
     pecas_prazo_em: c.pecas_prazo_em || null,
     // última solicitação de orçamento (peças pedidas, PDF, decisão) — telas do setor de peças e da aprovação
-    orcamento: c.orc_pecas ? { pecas: json(c.orc_pecas) || [], pdf_url: c.orc_pdf ? arquivos.caminhoAbrir(c.orc_pdf) : null, decisao: c.orc_decisao || null } : null,
+    orcamento: c.orc_pecas ? {
+      pecas: json(c.orc_pecas) || [],
+      pdf_url: c.orc_pdf ? arquivos.caminhoAbrir(c.orc_pdf) : null,
+      decisao: c.orc_decisao || null,
+      aprovado_url: urlAprovado(c.orc_decisao, c.orc_pdf, c.orc_via),
+    } : null,
+    // separação das peças do orçamento aprovado (kanban/pecas.js): estoque / para pedir / pedido / fora
+    pecas: json(c.pecas_json) || [],
   };
+}
+
+// "Orçamento aprovado pelo cliente": no parcial, o PDF que a aprovação anexou; no integral, o próprio
+// orçamento enviado (o cliente aprovou tudo). Sem decisão de aprovação (ou devolvido), não há.
+function urlAprovado(decisao, pdfMidiaId, viaMidiaId) {
+  const id = decisao === 'parcial' ? viaMidiaId : decisao === 'integral' ? pdfMidiaId : null;
+  return id ? arquivos.caminhoAbrir(id) : null;
 }
 
 // Responde a ação (síncrona ou assíncrona); ErroAcao vira o status certo, qualquer outro
@@ -166,7 +184,23 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       pdf_url: o.pdf_midia_id ? arquivos.caminhoAbrir(o.pdf_midia_id) : null, enviado_por: o.enviado_por, enviado_em: o.enviado_em,
       decisao: o.decisao, decisao_obs: o.decisao_obs, decidido_por: o.decidido_por, decidido_em: o.decidido_em,
       via_cliente_url: o.via_cliente_midia_id ? arquivos.caminhoAbrir(o.via_cliente_midia_id) : null,
+      aprovado_url: urlAprovado(o.decisao, o.pdf_midia_id, o.via_cliente_midia_id),
     }));
+
+  // ---------- separação das peças do orçamento aprovado (kanban/pecas.js) ----------
+  const papelDe = (req) => fluxo.papelDoUsuario(db, req.session && req.session.usuario);
+  r.put('/cards/:id/pecas', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = pecas.salvar(db, req.params.id, { itens: b.itens, operador: b.operador, papel: papelDe(req) });
+    if (out.alteradas) broadcast('kanban');
+    return { ok: true, ...out, card: porId(Number(req.params.id)) };
+  }, log));
+  r.post('/pecas/pedidas', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = pecas.marcarPedidas(db, b.ids, { operador: b.operador, papel: papelDe(req) });
+    broadcast('kanban');
+    return { ok: true, ...out };
+  }, log));
 
   r.get('/cards/:id', async (req, res) => {
     const c = db.prepare(`${SQL_CARDS} WHERE c.id = ?`).get(Number(req.params.id));
@@ -435,7 +469,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     return { checklist: doChecklist, ultima_solicitacao: ultimo ? json(ultimo.pecas) || [] : [] };
   }, log));
 
-  // PDF do orçamento ou da nova via do cliente: sobe antes do "mover", que o usa pelo midia_id.
+  // PDF do orçamento ou do orçamento aprovado pelo cliente (aprovação parcial): sobe antes do "mover", que o usa pelo midia_id.
   r.post('/cards/:id/orcamento-pdf', express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '31mb' }), (req, res) => responder(res, async () => {
     const op = acoes.validarOperador(req.query.operador);
     if (fluxo.papelDoUsuario(db, req.session && req.session.usuario) === 'registro') throw new acoes.ErroAcao(403, fluxo.mensagemSemPermissao('registro'));
