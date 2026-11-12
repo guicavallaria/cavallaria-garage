@@ -89,6 +89,8 @@ function resumoCard(c) {
     ultimo_evento_em: c.ultimo_evento_em || null,
     pecas_prazo_dias: c.pecas_prazo_dias ?? null,
     pecas_prazo_em: c.pecas_prazo_em || null,
+    urgente_em: c.urgente_em || null, // "SERVIÇO URGENTE": topo da coluna e fundo vermelho
+    urgente_por: c.urgente_por || null,
     // última solicitação de orçamento (peças pedidas, PDF, decisão) — telas do setor de peças e da aprovação
     orcamento: c.orc_pecas ? {
       pecas: json(c.orc_pecas) || [],
@@ -153,7 +155,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const fases = db.prepare('SELECT id, nome FROM kb_fases ORDER BY ordem').all();
     const usuario = req.session && req.session.usuario;
     const papel = fluxo.papelDoUsuario(db, usuario);
-    const cards = db.prepare(`${SQL_CARDS} WHERE c.arquivado_em IS NULL ORDER BY c.fase_desde ASC`).all().map(resumoCard);
+    const cards = db.prepare(`${SQL_CARDS} WHERE c.arquivado_em IS NULL ORDER BY (c.urgente_em IS NULL), c.urgente_em DESC, c.fase_desde ASC`).all().map(resumoCard);
     const mecanicos = db.prepare('SELECT id, nome FROM kb_mecanicos WHERE removido_em IS NULL ORDER BY ordem, nome').all();
     res.json({
       agora: new Date().toISOString(),
@@ -196,6 +198,16 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     if (out.alteradas) broadcast('kanban');
     return { ok: true, ...out, card: porId(Number(req.params.id)) };
   }, log));
+  // peças pedidas para orçamento: editar / excluir uma (registra na linha do tempo)
+  const alterarPecaOrc = (remover) => (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = pecas.alterarPecaOrcamento(db, req.params.id, req.params.orcId, req.params.indice,
+      { descricao: b.descricao, atual: b.atual, operador: b.operador, papel: papelDe(req), remover });
+    if (out.alterada) broadcast('kanban');
+    return { ok: true, ...out };
+  }, log);
+  r.put('/cards/:id/orcamentos/:orcId/pecas/:indice', alterarPecaOrc(false));
+  r.post('/cards/:id/orcamentos/:orcId/pecas/:indice/remover', alterarPecaOrc(true));
   r.post('/pecas/pedidas', (req, res) => responder(res, () => {
     const b = req.body || {};
     const out = pecas.marcarPedidas(db, b.ids, { operador: b.operador, papel: papelDe(req) });
@@ -445,6 +457,13 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const c = acoes.desarquivarCard(db, req.params.id, { operador: (req.body || {}).operador });
     broadcast('kanban');
     return { ok: true, card: porId(c.id) };
+  }, log));
+
+  r.put('/cards/:id/urgente', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = acoes.definirUrgente(db, req.params.id, { urgente: b.urgente, operador: b.operador });
+    if (out.mudou) broadcast('kanban');
+    return { ok: true, mudou: out.mudou, card: porId(out.card.id) };
   }, log));
 
   r.put('/cards/:id/mecanico', (req, res) => responder(res, () => {

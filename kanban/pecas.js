@@ -134,4 +134,53 @@ function marcarPedidas(db, ids, { operador, papel = 'total' }, { agora = new Dat
   return { marcadas: pecas.length, cards: [...porCard.keys()] };
 }
 
-module.exports = { SITUACOES, NOME, semearDaAprovacao, listar, salvar, marcarPedidas };
+// Peças pedidas para orçamento (kb_orcamentos.pecas), pedido do Guilherme em 12/11/2026:
+// editar ou excluir uma por vez, cada mudança registrada na linha do tempo. Só na solicitação
+// em aberto (a mais recente, ainda sem decisão da aprovação); as antigas ficam como histórico.
+// `atual` é a descrição que a tela mostrava: se a lista mudou nesse meio-tempo, recusa (409).
+const PODE_ORCAMENTO = ['total', 'orcamento', 'aprovacao'];
+
+function alterarPecaOrcamento(db, cardId, orcamentoId, indice, { descricao, atual, operador, papel = 'total', remover = false }, { agora = new Date().toISOString() } = {}) {
+  const { ErroAcao, validarOperador } = acoes();
+  if (!PODE_ORCAMENTO.includes(papel)) throw new ErroAcao(403, 'Seu acesso é só de registros: não altera as peças do orçamento');
+  const op = validarOperador(operador);
+  const card = db.prepare('SELECT * FROM kb_cards WHERE id = ?').get(Number(cardId));
+  if (!card) throw new ErroAcao(404, 'Card não encontrado');
+  if (card.arquivado_em) throw new ErroAcao(409, 'Card arquivado: as peças do orçamento não mudam mais');
+  const orc = db.prepare('SELECT * FROM kb_orcamentos WHERE id = ? AND card_id = ?').get(Number(orcamentoId), card.id);
+  if (!orc) throw new ErroAcao(404, 'Orçamento não encontrado');
+  const ultimo = db.prepare('SELECT id FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id);
+  if (orc.id !== ultimo.id || orc.decisao) throw new ErroAcao(409, 'Este orçamento já foi decidido: as peças ficam como estão (use a separação de peças)');
+  let lista;
+  try { lista = JSON.parse(orc.pecas || '[]') || []; } catch (_) { lista = []; }
+  const i = Number(indice);
+  const limpa = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  if (!Number.isInteger(i) || !lista[i] || limpa(lista[i].descricao) !== limpa(atual)) {
+    throw new ErroAcao(409, 'A lista de peças mudou: recarregue o card e tente de novo');
+  }
+  const antes = limpa(lista[i].descricao);
+  let texto;
+  let acao;
+  if (remover) {
+    lista.splice(i, 1);
+    texto = `Peça retirada do orçamento: ${antes}`;
+    acao = 'orcamento_peca_removida';
+  } else {
+    const nova = limpa(descricao);
+    if (!nova) throw new ErroAcao(400, 'Escreva a descrição da peça');
+    if (nova.length > 300) throw new ErroAcao(400, 'Descrição de peça muito longa (máximo 300 caracteres)');
+    if (nova === antes) return { alterada: false, pecas: lista };
+    lista[i] = { ...lista[i], descricao: nova };
+    texto = `Peça do orçamento alterada:\nde: ${antes}\npara: ${nova}`;
+    acao = 'orcamento_peca_editada';
+  }
+  db.transaction(() => {
+    db.prepare('UPDATE kb_orcamentos SET pecas = ? WHERE id = ?').run(JSON.stringify(lista), orc.id);
+    db.prepare(`INSERT INTO kb_eventos (card_id, tipo, texto, dados, operador_nome, criado_em) VALUES (?, 'texto', ?, ?, ?, ?)`)
+      .run(card.id, texto, JSON.stringify({ acao, orcamento_id: orc.id, antes, depois: remover ? null : lista[i].descricao }), op, agora);
+    db.prepare('UPDATE kb_cards SET atualizado_em = ? WHERE id = ?').run(agora, card.id);
+  })();
+  return { alterada: true, pecas: lista };
+}
+
+module.exports = { SITUACOES, NOME, semearDaAprovacao, listar, salvar, marcarPedidas, alterarPecaOrcamento, PODE_ORCAMENTO };

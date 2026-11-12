@@ -101,3 +101,15 @@ Código: `kanban/orcamento-pdf.js` (pdf.js da Mozilla, `pdfjs-dist`), migração
   Sem peças lidas no PDF, vale a lista da solicitação.
 - Janela "Separar peças": com a lista vazia, já vem com as peças do PDF; senão, botão **⇣ Trazer do PDF do
   orçamento (N)**. PDFs anexados antes desta versão são lidos do bucket na primeira vez que a janela abre.
+
+## Editar e excluir peças pedidas para orçamento (12/11/2026)
+
+No card, a lista de peças da solicitação **em aberto** (a mais recente, ainda sem decisão da aprovação) mostra
+`editar` e `excluir` em cada item. Cada mudança vira um registro automático na linha do tempo, que não pode ser
+editado nem removido: "Peça do orçamento alterada: de … para …" ou "Peça retirada do orçamento: …".
+
+- Quem pode: movimentação total, orçamento e peças, aprovação. Quem tem só registros não pode.
+- Orçamentos já decididos (aprovados ou devolvidos) e cards arquivados não mudam. Depois da aprovação, a lista que vale é a da separação de peças.
+- A tela envia a descrição que estava mostrando (`atual`). Se a lista mudou nesse meio-tempo, o servidor responde 409 e pede para recarregar.
+- Rotas: `PUT /api/kanban/cards/:id/orcamentos/:orcId/pecas/:indice` `{descricao, atual, operador}` e
+  `POST …/pecas/:indice/remover` `{atual, operador}` (`kanban/pecas.js` → `alterarPecaOrcamento`).

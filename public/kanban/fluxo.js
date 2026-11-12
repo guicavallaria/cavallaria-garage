@@ -93,13 +93,14 @@
     const acoes = acoesDoCard(ctx, c);
     const separar = podeSeparar(ctx) && ([FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id) || (c.pecas || []).length) && c.fase_id !== FASE.APROVACAO
       ? `<button type="button" class="kb-botao${contarPecas(c).a_definir || !(c.pecas || []).length ? '' : ' kb-botao-sec'}" data-fluxo-separar="${c.id}">📦 Separar peças</button>` : '';
-    return `<article class="kb-g-card${motivo ? ' kb-piscar' : ''}" data-abrir-card="${c.id}" tabindex="0" role="button"
-        aria-label="OS ${esc(c.os_numero)}${motivo ? ` — ${esc(motivo)}` : ''}">
+    return `<article class="kb-g-card${motivo && !c.urgente_em ? ' kb-piscar' : ''}${c.urgente_em ? ' kb-urgente' : ''}" data-abrir-card="${c.id}" tabindex="0" role="button"
+        aria-label="${c.urgente_em ? 'Serviço urgente, ' : ''}OS ${esc(c.os_numero)}${motivo ? ` — ${esc(motivo)}` : ''}">
       <div class="kb-g-l1">
         <span class="kb-g-os">${c.empresa === 'awdyna' ? '<span class="kb-selo-empresa">AWDYNA</span> ' : ''}OS ${esc(c.os_numero)}</span>
         ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''}
         <span class="kb-g-tempo" title="Tempo nesta fase">${dhm(naFase(c, agora))}</span>
       </div>
+      ${c.urgente_em ? '<div class="kb-urgente-selo">🚨 SERVIÇO URGENTE</div>' : ''}
       <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
       ${motivo ? `<div class="kb-g-alerta">⚠ ${esc(motivo)}</div>` : ''}
       ${resumoPrazo(c, agora)}

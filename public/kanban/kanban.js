@@ -152,18 +152,19 @@
     return true;
   }
 
-  function cardHtml(c, agora) {
+  function cardHtml(c, agora, rotuloFase) {
     const t = tempoNaFase(c.fase_desde, agora);
     const velho = t.dias > VELHO_DIAS;
     const veiculo = [c.marca, c.modelo].filter(Boolean).join(' ');
     const piscar = KF.motivoPiscar(c, agora);
-    return `<div class="kb-card${velho ? ' kb-velho' : ''}${piscar ? ' kb-piscar' : ''}" ${piscar ? `title="${esc(piscar)}"` : ''} role="button" tabindex="0" draggable="true" data-id="${c.id}" data-fase="${c.fase_id}"
-        aria-label="${c.empresa === 'awdyna' ? 'AWDYNA, ' : ''}OS ${esc(c.os_numero)}, ${esc(c.placa || '')}, ${t.texto} nesta fase">
+    return `<div class="kb-card${velho ? ' kb-velho' : ''}${piscar && !c.urgente_em ? ' kb-piscar' : ''}${c.urgente_em ? ' kb-urgente' : ''}" ${piscar ? `title="${esc(piscar)}"` : ''} role="button" tabindex="0" draggable="true" data-id="${c.id}" data-fase="${c.fase_id}"
+        aria-label="${c.urgente_em ? 'Serviço urgente, ' : ''}${c.empresa === 'awdyna' ? 'AWDYNA, ' : ''}OS ${esc(c.os_numero)}, ${esc(c.placa || '')}, ${t.texto} nesta fase">
       <div class="kb-card-l1">
         <span class="kb-os">OS ${esc(c.os_numero)}</span>
         ${c.placa ? `<span class="kb-placa">${esc(c.placa)}</span>` : ''}
         <span class="kb-tempo" title="Tempo nesta fase">${t.texto}</span>
       </div>
+      ${c.urgente_em ? `<div class="kb-urgente-selo">🚨 SERVIÇO URGENTE${rotuloFase ? ` <small>· ${esc(rotuloFase)}</small>` : ''}</div>` : ''}
       <div class="kb-card-l2">${c.empresa === 'awdyna' ? '<span class="kb-selo-empresa">AWDYNA</span> ' : ''}${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}</div>
       <div class="kb-card-l3">
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
@@ -256,7 +257,15 @@
             ${col.fases.map((f) => `<span><strong>${porFase.get(f).length}</strong> ${esc(nomeFase(f))}</span>`).join('')}
             ${nAlertas ? `<span class="kb-grupo-alerta">⚠ ${nAlertas} com alerta</span>` : ''}
             <em>Abrir painel do setor →</em></button>`
-          + col.fases.map((f) => (porFase.get(f).length ? `<div class="kb-sub-fase">${esc(KF.nomeNoSetor(f, nomeFase(f)))}</div>${porFase.get(f).map((c) => cardHtml(c, agora)).join('')}` : '')).join('');
+          // urgentes do grupo no topo da coluna, acima das subfases (com a subfase escrita no card)
+          + (() => {
+            const urg = visiveis.filter((c) => c.urgente_em && col.fases.includes(c.fase_id));
+            return urg.length ? `<div class="kb-sub-fase kb-sub-urgente">🚨 Urgentes</div>${urg.map((c) => cardHtml(c, agora, KF.nomeNoSetor(c.fase_id, nomeFase(c.fase_id)))).join('')}` : '';
+          })()
+          + col.fases.map((f) => {
+            const lista = porFase.get(f).filter((c) => !c.urgente_em);
+            return lista.length ? `<div class="kb-sub-fase">${esc(KF.nomeNoSetor(f, nomeFase(f)))}</div>${lista.map((c) => cardHtml(c, agora)).join('')}` : '';
+          }).join('');
       } else {
         const lista = porFase.get(col.id);
         if (estado.fluxo && col.id === estado.fluxo.aprovacao) botao = '<button type="button" class="kb-abrir-visao" data-visao="aprovacao" title="Abrir a tela da aprovação de orçamento">⤢</button>';
@@ -463,7 +472,7 @@
     }
     // As URLs das mídias valem 15 min: com o painel aberto, renova a cada 10 min.
     clearInterval(refrescoUrls);
-    refrescoUrls = setInterval(() => { if (cardAberto && !cardAberto.editando) abrirCard(cardAberto.id); }, 10 * 60_000);
+    refrescoUrls = setInterval(() => { if (cardAberto && !cardAberto.editando && !cardAberto.pecaOrc) abrirCard(cardAberto.id); }, 10 * 60_000);
   }
 
   function renderPainel() {
@@ -484,6 +493,48 @@
     M.listarItens().then(renderPendentes);
   }
 
+  // Peças pedidas para orçamento: editar / excluir uma por vez na solicitação em aberto (sem decisão);
+  // o servidor registra cada mudança na linha do tempo.
+  const podeAlterarOrc = (o) => !o.decisao && papel() !== 'registro' && cardAberto && cardAberto.card && !cardAberto.card.arquivado_em;
+  function pecaOrcHtml(o, p, j) {
+    const ed = cardAberto.pecaOrc && cardAberto.pecaOrc.orc === o.id && cardAberto.pecaOrc.indice === j ? cardAberto.pecaOrc : null;
+    const dados = `data-id="${j}" data-orc="${o.id}"`;
+    if (ed && ed.modo === 'editar') {
+      return `<li class="kb-orc-peca kb-orc-peca-ed"><input type="text" class="kb-orc-peca-in" maxlength="300" value="${esc(ed.texto)}" aria-label="Descrição da peça">
+        <button type="button" class="kb-botao" data-acao="orc-peca-salvar" ${dados}>Salvar</button>
+        <button type="button" class="kb-botao kb-botao-sec" data-acao="orc-peca-cancelar" ${dados}>Cancelar</button></li>`;
+    }
+    if (ed && ed.modo === 'excluir') {
+      return `<li class="kb-orc-peca kb-orc-peca-ex"><span>Excluir <strong>${esc(p.descricao)}</strong> do orçamento?</span>
+        <button type="button" class="kb-botao kb-botao-perigo" data-acao="orc-peca-confirmar-excluir" ${dados}>Excluir</button>
+        <button type="button" class="kb-botao kb-botao-sec" data-acao="orc-peca-cancelar" ${dados}>Cancelar</button></li>`;
+    }
+    return `<li class="kb-orc-peca"><span>${esc(p.descricao)}</span>
+      <button type="button" class="kb-link-pequeno" data-acao="orc-peca-editar" ${dados}>editar</button>
+      <button type="button" class="kb-link-pequeno" data-acao="orc-peca-excluir" ${dados}>excluir</button></li>`;
+  }
+  async function gravarPecaOrc(b, remover) {
+    const ca = cardAberto;
+    const o = (ca.orcamentos || []).find((x) => x.id === Number(b.dataset.orc));
+    const j = Number(b.dataset.id);
+    if (!o || !o.pecas[j]) return;
+    const texto = remover ? null : String((b.closest('li').querySelector('input') || {}).value || '').trim();
+    if (!remover && !texto) { avisar('Escreva a descrição da peça', true); return; }
+    const op = await garantirOperador();
+    if (!op) return;
+    b.disabled = true;
+    try {
+      const base = `/api/kanban/cards/${ca.id}/orcamentos/${o.id}/pecas/${j}`;
+      const r = remover
+        ? await api(`${base}/remover`, { json: { atual: o.pecas[j].descricao, operador: op } })
+        : await api(base, { method: 'PUT', json: { descricao: texto, atual: o.pecas[j].descricao, operador: op } });
+      ca.pecaOrc = null;
+      avisar(remover ? 'Peça excluída do orçamento' : (r.alterada ? 'Peça alterada' : 'Nada mudou'));
+      abrirCard(ca.id);
+      carregar();
+    } catch (e) { avisar(e.message, true); b.disabled = false; }
+  }
+
   // Solicitações de orçamento do card: peças pedidas, PDF, decisão da aprovação.
   function renderOrcamentos() {
     const el = $('kbOrcamentos');
@@ -496,7 +547,7 @@
       <div class="kb-orc${i ? ' kb-orc-antigo' : ''}">
         <div class="kb-orc-topo">${o.solicitado_por ? `Pedido por ${esc(o.solicitado_por)} em ${dataBR(o.solicitado_em)}` : `Desde ${dataBR(o.solicitado_em)}`}
           ${o.decisao ? `<span class="kb-orc-dec kb-orc-${o.decisao}">${DEC[o.decisao]}</span>` : (o.pdf_url ? '<span class="kb-orc-dec">Aguardando aprovação</span>' : '<span class="kb-orc-dec">Em orçamento</span>')}</div>
-        ${o.pecas.length ? `<ul class="kb-g-pecas">${o.pecas.map((p) => `<li>${esc(p.descricao)}</li>`).join('')}</ul>` : ''}
+        ${o.pecas.length ? `<ul class="kb-g-pecas${i === 0 && podeAlterarOrc(o) ? ' kb-orc-pecas' : ''}">${o.pecas.map((p, j) => (i === 0 && podeAlterarOrc(o) ? pecaOrcHtml(o, p, j) : `<li>${esc(p.descricao)}</li>`)).join('')}</ul>` : ''}
         <div class="kb-orc-links">${o.pdf_url ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
           ${o.aprovado_url ? `<a class="kb-aprovado" href="${esc(o.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : ''}</div>
         ${o.decisao_obs ? `<p class="kb-orc-obs">${esc(o.decisao_obs)}${o.decidido_por ? ` — ${esc(o.decidido_por)}` : ''}</p>` : ''}
@@ -647,7 +698,10 @@
           ${podeMover ? '<button type="button" class="kb-botao" data-acao="mover">Mover para…</button>'
             : `<span class="kb-dica-mover">${papel() === 'registro' ? 'Seu usuário registra no card, mas não move entre fases.' : 'Seu usuário não move cards desta fase.'}</span>`}
           <button type="button" class="kb-botao kb-botao-sec kb-so-gestor" data-acao="arquivar">Arquivar</button>
+          <button type="button" class="kb-botao kb-botao-urgente${c.urgente_em ? ' kb-ativo' : ''}" data-acao="urgente" aria-pressed="${c.urgente_em ? 'true' : 'false'}"
+            title="${c.urgente_em ? 'Desativar: o card volta à ordem normal' : 'O card vai para o topo da coluna, com fundo vermelho'}">🚨 ${c.urgente_em ? 'URGENTE — desativar' : 'SERVIÇO URGENTE'}</button>
         </div>
+        ${c.urgente_em ? `<p class="kb-urgente-info">🚨 Serviço urgente desde ${dataBR(c.urgente_em)}${c.urgente_por ? ` · marcado por ${esc(c.urgente_por)}` : ''}</p>` : ''}
         <label class="kb-campo-mecanico">🔧 Mecânico
           <select data-acao="mecanico">
             <option value="">${c.mecanico_do_card ? 'Usar o do painel de pátio' : (c.mecanico_nome ? `Do pátio: ${esc(primeiro(c.mecanico_nome))}` : 'Nenhum')}</option>
@@ -918,6 +972,18 @@
     const id = Number(b.dataset.id);
     switch (b.dataset.acao) {
       case 'mover': cardAberto.modo = 'mover'; renderCabecalho(); renderCompositor(); break;
+      case 'urgente': {
+        const op = await garantirOperador();
+        if (!op) break;
+        b.disabled = true;
+        try {
+          const r = await api(`/api/kanban/cards/${c.id}/urgente`, { method: 'PUT', json: { urgente: !c.urgente_em, operador: op } });
+          avisar(r.card.urgente_em ? `OS ${r.card.os_numero}: SERVIÇO URGENTE — vai para o topo da coluna` : `OS ${r.card.os_numero}: urgência desativada`);
+          abrirCard(c.id);
+          carregar();
+        } catch (e) { avisar(e.message, true); b.disabled = false; }
+        break;
+      }
       case 'arquivar': cardAberto.modo = 'arquivar'; renderCabecalho(); renderCompositor(); break;
       case 'voltar': cardAberto.modo = null; renderCabecalho(); renderCompositor(); break;
       case 'mover-para': {
@@ -1012,10 +1078,27 @@
         } catch (e) { avisar(e.message, true); b.disabled = false; }
         break;
       }
+      case 'orc-peca-editar':
+      case 'orc-peca-excluir': {
+        const o = (cardAberto.orcamentos || []).find((x) => x.id === Number(b.dataset.orc));
+        if (!o || !o.pecas[id]) break;
+        cardAberto.pecaOrc = { orc: o.id, indice: id, modo: b.dataset.acao === 'orc-peca-editar' ? 'editar' : 'excluir', texto: o.pecas[id].descricao };
+        renderOrcamentos();
+        if (cardAberto.pecaOrc.modo === 'editar') { const inp = $('kbOrcamentos').querySelector('.kb-orc-peca-in'); if (inp) { inp.focus(); inp.select(); } }
+        break;
+      }
+      case 'orc-peca-cancelar': cardAberto.pecaOrc = null; renderOrcamentos(); break;
+      case 'orc-peca-salvar': await gravarPecaOrc(b, false); break;
+      case 'orc-peca-confirmar-excluir': await gravarPecaOrc(b, true); break;
       case 'fila-tentar': M.tentarDeNovo(b.dataset.id); break;
       case 'fila-descartar': M.descartar(b.dataset.id); break;
       default: break;
     }
+  });
+  $('kbPainelCorpo').addEventListener('keydown', (ev) => {
+    if (!ev.target.classList || !ev.target.classList.contains('kb-orc-peca-in')) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); const s = ev.target.closest('li').querySelector('[data-acao="orc-peca-salvar"]'); if (s) s.click(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cardAberto.pecaOrc = null; renderOrcamentos(); }
   });
   $('kbPainelCorpo').addEventListener('change', (ev) => {
     const sel = ev.target.closest('select[data-acao="mecanico"]');
@@ -1024,6 +1107,7 @@
   $('kbPainelCorpo').addEventListener('input', (ev) => {
     if (ev.target.id === 'kbTexto' && cardAberto && cardAberto.compositor) cardAberto.compositor.texto = ev.target.value;
     if (ev.target.id === 'kbLegenda' && cardAberto && cardAberto.compositor) cardAberto.compositor.legenda = ev.target.value;
+    if (ev.target.classList.contains('kb-orc-peca-in') && cardAberto && cardAberto.pecaOrc) cardAberto.pecaOrc.texto = ev.target.value;
   });
 
   // Entradas de arquivo (câmera, galeria, áudio). Zeradas depois de ler para permitir escolher o mesmo arquivo de novo.

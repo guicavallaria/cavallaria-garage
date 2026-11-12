@@ -23,8 +23,8 @@
       <h2 id="admUsuTitulo" class="kb-sec">Usuários</h2>
       <p class="kb-dica">Cada pessoa ou setor entra com o próprio usuário. Senhas novas são provisórias: aparecem <strong>uma vez só</strong> aqui e a pessoa troca no primeiro acesso.
         Recepção e Gerência: acesso total · Compras e Pátio: tudo menos pós-vendas · Mecânicos: só o kanban · Administração: só Gerência.</p>
-      <p class="kb-dica"><strong>Papel no kanban</strong> — quem move cards entre fases: <em>Movimentação total</em> (Guilherme, Lucas, Vanilton) ·
-        <em>Orçamento e peças</em> (Cauã: Orçamento, Aquisição e Aguardando Peças) · <em>Aprovação de orçamento</em> (Luan) ·
+      <p class="kb-dica"><strong>Papel no kanban</strong> — quem move cards entre fases: <em>Movimentação total</em> (Guilherme, Lucas, Vanilton, Luan) ·
+        <em>Orçamento e peças</em> (Cauã: Orçamento, Aquisição e Aguardando Peças) · <em>Aprovação de orçamento</em> (só a tela da aprovação) ·
         <em>Só registros</em> (todos os demais: registram no card, não movem). Vale pelo login: conta usada por várias pessoas dá o mesmo papel a todas.</p>
       <div id="admUsuSenhas"></div>
       <ul id="admUsuLista" class="adm-mec-lista"></ul>

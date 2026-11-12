@@ -98,8 +98,8 @@ test('migração 015: cards já aprovados no setor de peças ganham as peças "a
   const db = banco();
   const { card } = aprovado(db);
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 2), ['016_pdf_pecas.js', '015_pecas_separacao.js']);
-  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js']);
+  assert.deepEqual(reverter(db, undefined, 3), ['017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
+  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js']);
   assert.deepEqual(pecas.listar(db, card.id).map((p) => p.situacao), ['a_definir', 'a_definir', 'a_definir']);
 });
 
@@ -170,4 +170,77 @@ test('card que pula o Orçamento (Aquisição → Aprovação direto) não perde
   const r = pecas.salvar(db, card.id, { operador: 'Cauã', itens: [...pecas.listar(db, card.id).map((p) => ({ id: p.id, situacao: 'pedir' })), { descricao: 'Bucha', situacao: 'estoque', origem: 'orcamento' }] }, { agora: AGORA });
   assert.equal(r.pecas.at(-1).origem, 'orcamento');
   assert.doesNotMatch(ultimoEvento(db, card.id).texto, /Bucha \(incluída\)/);
+});
+
+test('peças pedidas para orçamento: editar e excluir uma por vez, com registro na linha do tempo', async () => {
+  const db = banco();
+  const c = db.prepare('SELECT * FROM kb_cards WHERE fase_id = 2 ORDER BY id LIMIT 1').get();
+  mover(db, c.id, F.ORCAMENTO, { pecas: PECAS });
+  const orc = () => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
+  const nomes = () => JSON.parse(orc().pecas).map((p) => p.descricao);
+  const alt = (i, extra) => pecas.alterarPecaOrcamento(db, c.id, orc().id, i, { operador: 'Cauã', ...extra }, { agora: AGORA });
+
+  // editar: troca só a descrição, mantém a origem e registra de / para
+  const r = alt(1, { atual: 'Sensor de ângulo de direção', descricao: '  Sensor  de ângulo (SAS) ' });
+  assert.equal(r.alterada, true);
+  assert.deepEqual(nomes(), ['Pastilhas dianteiras', 'Sensor de ângulo (SAS)', 'Óleo 5W30']);
+  assert.equal(JSON.parse(orc().pecas)[0].origem, 'checklist');
+  let ev = ultimoEvento(db, c.id);
+  assert.equal(ev.operador_nome, 'Cauã');
+  assert.equal(ev.texto, 'Peça do orçamento alterada:\nde: Sensor de ângulo de direção\npara: Sensor de ângulo (SAS)');
+  assert.equal(JSON.parse(ev.dados).acao, 'orcamento_peca_editada');
+  // mesma descrição: nada muda, nada registra
+  assert.equal(alt(1, { atual: 'Sensor de ângulo (SAS)', descricao: 'Sensor de ângulo (SAS)' }).alterada, false);
+  assert.equal(ultimoEvento(db, c.id).id, ev.id);
+
+  // excluir
+  alt(2, { atual: 'Óleo 5W30', remover: true });
+  assert.deepEqual(nomes(), ['Pastilhas dianteiras', 'Sensor de ângulo (SAS)']);
+  ev = ultimoEvento(db, c.id);
+  assert.equal(ev.texto, 'Peça retirada do orçamento: Óleo 5W30');
+  // registro automático: não se edita nem remove
+  const linhaTempo = require('../kanban/linha-tempo');
+  assert.throws(() => linhaTempo.removerRegistro(db, ev.id, { operador: 'Cauã' }), /automáticos/);
+
+  // tela desatualizada (outra pessoa mexeu), papel só registro, descrição vazia
+  assert.throws(() => alt(0, { atual: 'Óleo 5W30', remover: true }), (e) => e.status === 409);
+  assert.throws(() => alt(5, { atual: 'x', remover: true }), (e) => e.status === 409);
+  assert.throws(() => alt(0, { atual: 'Pastilhas dianteiras', remover: true, papel: 'registro' }), (e) => e.status === 403);
+  assert.throws(() => alt(0, { atual: 'Pastilhas dianteiras', descricao: '   ' }), /Escreva/);
+
+  // decidido (aprovado): as peças da solicitação ficam como estão
+  mover(db, c.id, F.APROVACAO, { pdfMidiaId: pdfFalso(db, c.id) });
+  alt(0, { atual: 'Pastilhas dianteiras', descricao: 'Pastilhas dianteiras (cerâmica)', papel: 'aprovacao' });
+  mover(db, c.id, F.AQUISICAO, { papel: 'aprovacao', decisao: 'integral' });
+  assert.deepEqual(pecas.listar(db, c.id).map((p) => p.descricao), ['Pastilhas dianteiras (cerâmica)', 'Sensor de ângulo (SAS)']);
+  assert.throws(() => alt(0, { atual: 'Pastilhas dianteiras (cerâmica)', remover: true }), (e) => e.status === 409);
+
+  // rotas
+  const outro = db.prepare('SELECT * FROM kb_cards WHERE fase_id = 2 ORDER BY id LIMIT 1').get();
+  mover(db, outro.id, F.ORCAMENTO, { pecas: PECAS });
+  const o2 = db.prepare('SELECT id FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(outro.id).id;
+  const app = express();
+  app.use(express.json());
+  app.use('/api/kanban', criarRouter({ db, log: () => {}, criarCliente: () => null }));
+  const srv = app.listen(0);
+  const base = `http://127.0.0.1:${srv.address().port}/api/kanban/cards/${outro.id}/orcamentos/${o2}/pecas`;
+  const json = (metodo, url, corpo) => fetch(`${base}${url}`, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  try {
+    let res = await json('PUT', '/0', { atual: 'Pastilhas dianteiras', descricao: 'Pastilhas traseiras', operador: 'Cauã' });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).pecas.map((p) => p.descricao), ['Pastilhas traseiras', 'Sensor de ângulo de direção', 'Óleo 5W30']);
+    res = await json('POST', '/2/remover', { atual: 'Óleo 5W30', operador: 'Cauã' });
+    assert.equal(res.status, 200);
+    res = await json('POST', '/2/remover', { atual: 'Óleo 5W30', operador: 'Cauã' });
+    assert.equal(res.status, 409);
+    const det = await (await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/cards/${outro.id}`)).json();
+    assert.deepEqual(det.orcamentos[0].pecas.map((p) => p.descricao), ['Pastilhas traseiras', 'Sensor de ângulo de direção']);
+    const textos = det.eventos.map((e) => e.texto || '');
+    assert.ok(textos.some((t) => t.startsWith('Peça retirada do orçamento: Óleo 5W30')));
+    const evEd = det.eventos.find((e) => (e.texto || '').startsWith('Peça do orçamento alterada'));
+    assert.equal(evEd.editavel, false);
+    assert.equal(evEd.removivel, false);
+  } finally {
+    srv.close();
+  }
 });

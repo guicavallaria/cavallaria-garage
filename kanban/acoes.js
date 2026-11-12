@@ -218,6 +218,23 @@ function definirMecanico(db, id, { mecanicoId, operador }, { agora = agoraUtc() 
   return cardOu404(db, c.id);
 }
 
+// "SERVIÇO URGENTE": liga/desliga. Card urgente fica no topo da coluna (o último marcado primeiro),
+// por cima da ordem do sistema, em qualquer fase. Cada troca vira registro na linha do tempo.
+function definirUrgente(db, id, { urgente, operador }, { agora = agoraUtc() } = {}) {
+  const op = validarOperador(operador);
+  const liga = urgente === true || urgente === 'true' || urgente === 1;
+  return db.transaction(() => {
+    const c = cardOu404(db, id);
+    if (c.arquivado_em) throw new ErroAcao(409, 'Card arquivado: desarquive antes de marcar como urgente');
+    if (Boolean(c.urgente_em) === liga) return { card: c, mudou: false };
+    db.prepare('UPDATE kb_cards SET urgente_em = ?, urgente_por = ?, atualizado_em = ? WHERE id = ?').run(liga ? agora : null, liga ? op : null, agora, c.id);
+    db.prepare(`INSERT INTO kb_eventos (card_id, tipo, texto, dados, operador_nome, criado_em) VALUES (?, 'texto', ?, ?, ?, ?)`)
+      .run(c.id, liga ? '🚨 Marcado como SERVIÇO URGENTE.' : 'Urgência desativada: o card volta à ordem normal.',
+        JSON.stringify({ acao: liga ? 'urgente_ativado' : 'urgente_desativado' }), op, agora);
+    return { card: cardOu404(db, c.id), mudou: true };
+  })();
+}
+
 // ---------- busca ----------
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const soAlfanum = (s) => semAcento(s).replace(/[^a-z0-9]/g, '');
@@ -267,5 +284,5 @@ function operadoresConhecidos(db, { agora = new Date() } = {}) {
 }
 
 module.exports = {
-  ultimasPecas, ErroAcao, validarOperador, moverCard, arquivarCard, desarquivarCard, definirMecanico, buscar, operadoresConhecidos,
+  ultimasPecas, ErroAcao, validarOperador, moverCard, arquivarCard, desarquivarCard, definirMecanico, definirUrgente, buscar, operadoresConhecidos,
 };

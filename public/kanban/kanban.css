@@ -561,3 +561,32 @@ body.kb-em-setor .kb-filtros label.kb-so-pc { display: none !important; } /* a t
 .kb-sep-op { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 18px; border: 2px solid transparent; font-size: 13px; font-weight: 700; cursor: pointer; min-height: 36px; }
 .kb-sep-op input { margin: 0; }
 .kb-sep-op:has(input:checked) { border-color: currentColor; box-shadow: 0 0 0 2px #fff inset; }
+
+/* peças pedidas para orçamento: editar / excluir uma (solicitação em aberto) */
+.kb-orc-pecas { list-style: disc; }
+.kb-orc-peca { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.kb-orc-peca > span { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.kb-orc-peca .kb-link-pequeno { opacity: .75; }
+.kb-orc-peca .kb-link-pequeno:hover, .kb-orc-peca .kb-link-pequeno:focus-visible { opacity: 1; }
+.kb-orc-peca-ed .kb-orc-peca-in { flex: 1 1 220px; min-width: 0; padding: 6px 8px; font: inherit; border: 1px solid #c9ced8; border-radius: 6px; }
+.kb-orc-peca-ed .kb-botao, .kb-orc-peca-ex .kb-botao { padding: 4px 10px; font-size: 13px; }
+
+/* "SERVIÇO URGENTE": fundo vermelho, topo da coluna (a ordem vem do servidor) */
+.kb-card.kb-urgente, .kb-g-card.kb-urgente {
+  background: #c62828; color: #fff; border-color: #8e1b1b; border-left-color: #6d0f0f; animation: none;
+}
+.kb-card.kb-urgente:hover { border-color: #6d0f0f; }
+.kb-urgente .kb-card-l3, .kb-urgente .kb-tempo, .kb-urgente.kb-velho .kb-tempo, .kb-urgente .kb-g-l2,
+.kb-urgente .kb-g-alerta, .kb-urgente .kb-g-prazo, .kb-urgente .kb-g-pecas { color: #fff; }
+.kb-urgente .kb-placa { background: #fff; color: #222; }
+.kb-urgente .kb-g-tempo { background: #fff; color: #c62828; }
+.kb-urgente .kb-card-aprovado, .kb-urgente .kb-g-pdf { background: #fff; }
+.kb-urgente:focus-visible { outline-color: #111; }
+.kb-urgente-selo { margin-top: 4px; font-size: 12.5px; font-weight: 800; letter-spacing: .4px; }
+.kb-urgente-selo small { font-weight: 600; letter-spacing: 0; opacity: .9; }
+.kb-sub-urgente { color: #c62828; }
+.kb-botao-urgente { background: #fff; color: #c62828; border: 2px solid #c62828; font-weight: 800; }
+.kb-botao-urgente:hover, .kb-botao-urgente:focus-visible { background: #fdecea; }
+.kb-botao-urgente.kb-ativo { background: #c62828; color: #fff; }
+.kb-botao-urgente.kb-ativo:hover, .kb-botao-urgente.kb-ativo:focus-visible { background: #a61f1f; }
+.kb-urgente-info { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: #c62828; }
