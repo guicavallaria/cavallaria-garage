@@ -151,3 +151,23 @@ test('rotas: peças no estado, gravar a separação, marcar pedidas e o orçamen
     srv.close();
   }
 });
+
+test('card que pula o Orçamento (Aquisição → Aprovação direto) não perde as peças', () => {
+  const db = banco();
+  const { card } = aprovado(db, 'parcial');
+  // volta direto para a Aprovação (movimentação total), sem passar pelo Orçamento, e é aprovado de novo
+  mover(db, card.id, F.APROVACAO, { pdfMidiaId: pdfFalso(db, card.id) });
+  const orc = db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id);
+  assert.deepEqual(JSON.parse(orc.pecas).map((p) => p.descricao), PECAS.map((p) => p.descricao), 'a solicitação nova herda as peças');
+  mover(db, card.id, F.AQUISICAO, { papel: 'aprovacao', decisao: 'integral' });
+  assert.deepEqual(pecas.listar(db, card.id).map((p) => [p.descricao, p.situacao]), PECAS.map((p) => [p.descricao, 'a_definir']));
+  // solicitação antiga já vazia (como as criadas antes da correção): a aprovação busca a última com peças
+  db.prepare("UPDATE kb_orcamentos SET pecas = '[]' WHERE id = (SELECT MAX(id) FROM kb_orcamentos WHERE card_id = ?)").run(card.id);
+  db.prepare('UPDATE kb_pecas SET removido_em = ? WHERE card_id = ?').run(AGORA, card.id);
+  assert.equal(pecas.semearDaAprovacao(db, card, db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id), { op: 'T', agora: AGORA }), 3);
+  assert.equal(JSON.parse(acoes.ultimasPecas(db, card.id)).length, 3);
+  // peça trazida na janela de separação guarda a origem "orcamento"
+  const r = pecas.salvar(db, card.id, { operador: 'Cauã', itens: [...pecas.listar(db, card.id).map((p) => ({ id: p.id, situacao: 'pedir' })), { descricao: 'Bucha', situacao: 'estoque', origem: 'orcamento' }] }, { agora: AGORA });
+  assert.equal(r.pecas.at(-1).origem, 'orcamento');
+  assert.doesNotMatch(ultimoEvento(db, card.id).texto, /Bucha \(incluída\)/);
+});

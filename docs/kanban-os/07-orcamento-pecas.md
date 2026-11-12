@@ -83,4 +83,8 @@ Código: `kanban/pecas.js`, migração `015_pecas_separacao.js` (tabela `kb_peca
 - Cada gravação vira registro na linha do tempo ("Separação de peças — …", "Pedido feito (N): …"). Esses
   registros não se editam nem removem.
 - Nova aprovação do mesmo card (depois de voltar ao Orçamento) troca as peças que ainda não foram pedidas.
+- A lista de peças acompanha o card quando ele pula fases (ex.: Aquisição → Aprovação direto, ou Orçamento →
+  Aquisição sem aprovação): a solicitação nova herda as peças da última que tinha (`acoes.ultimasPecas`), e a
+  janela "Separar peças" com a lista vazia já traz as peças do orçamento; botões "⇣ Trazer do orçamento" e
+  "⇣ Trazer do checklist" completam o que faltar. (Correção de 12/11/2026, OS 7216/7489.)
 - Mover o card de fase não muda a situação das peças: o pedido feito é marcado à parte.

@@ -22,6 +22,8 @@ function semearDaAprovacao(db, card, orcamento, { op, agora }) {
   if (db.prepare('SELECT 1 FROM kb_pecas WHERE orcamento_id = ? AND removido_em IS NULL').get(orcamento.id)) return 0;
   let pecas = [];
   try { pecas = JSON.parse(orcamento.pecas || '[]') || []; } catch (_) { pecas = []; }
+  // solicitação sem peças (card pulou o Orçamento): usa as da última que tinha
+  if (!pecas.length) { try { pecas = JSON.parse(acoes().ultimasPecas(db, card.id)) || []; } catch (_) { pecas = []; } }
   const ins = db.prepare('INSERT INTO kb_pecas (card_id, orcamento_id, descricao, criado_em, criado_por) VALUES (?, ?, ?, ?, ?)');
   let n = 0;
   for (const p of pecas) {
@@ -59,6 +61,7 @@ function salvar(db, cardId, { itens, operador, papel = 'total' }, { agora = new 
     id: i && i.id ? Number(i.id) : null,
     descricao: String((i && i.descricao) || '').replace(/\s+/g, ' ').trim(),
     situacao: String((i && i.situacao) || ''),
+    origem: i && i.origem === 'orcamento' ? 'orcamento' : 'manual', // trazida da solicitação ou incluída à mão (ou do checklist)
   }));
   for (const i of lista) {
     if (i.id && !atuais.has(i.id)) throw new ErroAcao(400, 'Peça não pertence a este card (recarregue a tela)');
@@ -81,9 +84,9 @@ function salvar(db, cardId, { itens, operador, papel = 'total' }, { agora = new 
         mudou.push(`• ${a.descricao}: ${NOME[i.situacao]}`);
       } else {
         db.prepare(`INSERT INTO kb_pecas (card_id, orcamento_id, descricao, origem, situacao, criado_em, criado_por, atualizado_em, atualizado_por, pedido_em, pedido_por)
-            VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?)`)
-          .run(card.id, orc ? orc.id : null, i.descricao, i.situacao, agora, op, agora, op, i.situacao === 'pedido' ? agora : null, i.situacao === 'pedido' ? op : null);
-        mudou.push(`• ${i.descricao} (incluída): ${NOME[i.situacao]}`);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(card.id, orc ? orc.id : null, i.descricao, i.origem, i.situacao, agora, op, agora, op, i.situacao === 'pedido' ? agora : null, i.situacao === 'pedido' ? op : null);
+        mudou.push(`• ${i.descricao}${i.origem === 'manual' ? ' (incluída)' : ''}: ${NOME[i.situacao]}`);
       }
     }
     for (const [id, a] of atuais) {

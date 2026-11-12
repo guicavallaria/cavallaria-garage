@@ -465,8 +465,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         JOIN kb_checklist_modelos m ON m.id = x.modelo_id
         LEFT JOIN kb_checklist_itens i ON i.id = p.item_id
         WHERE x.card_id = ? AND p.removido_em IS NULL ORDER BY x.id, p.ordem`).all(card.id).filter((p) => p.descricao);
-    const ultimo = db.prepare('SELECT pecas FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id);
-    return { checklist: doChecklist, ultima_solicitacao: ultimo ? json(ultimo.pecas) || [] : [] };
+    return { checklist: doChecklist, ultima_solicitacao: json(acoes.ultimasPecas(db, card.id)) || [] };
   }, log));
 
   // PDF do orçamento ou do orçamento aprovado pelo cliente (aprovação parcial): sobe antes do "mover", que o usa pelo midia_id.

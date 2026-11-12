@@ -107,6 +107,9 @@ function pdfDoCard(db, card, midiaId, oQue) {
   return m;
 }
 
+// Peças da última solicitação que tinha peças: acompanham o card quando ele pula fases
+// (ex.: Aquisição → Aprovação direto, sem passar pelo Orçamento).
+const ultimasPecas = (db, cardId) => (db.prepare("SELECT pecas FROM kb_orcamentos WHERE card_id = ? AND json_array_length(pecas) > 0 ORDER BY id DESC LIMIT 1").get(cardId) || { pecas: '[]' }).pecas;
 const orcamentoAberto = (db, cardId) => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(cardId);
 const listaPecas = (pecas) => pecas.map((p) => `• ${p.descricao}`).join('\n');
 
@@ -120,7 +123,7 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, 
     const obs = validarObservacao(observacao, false);
     const via = decisao === 'parcial' ? pdfDoCard(db, card, pdfMidiaId, 'do orçamento aprovado pelo cliente (aprovação parcial)') : null;
     let orc = orcamentoAberto(db, card.id);
-    if (!orc) orc = { id: db.prepare("INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, '[]', ?)").run(card.id, agora).lastInsertRowid };
+    if (!orc) orc = { id: db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, ?, ?)').run(card.id, ultimasPecas(db, card.id), agora).lastInsertRowid };
     db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
       .run(decisao, obs, via ? via.id : null, op, agora, orc.id);
     // peças do orçamento aprovado entram "a separar" para o compras (estoque / pedido)
@@ -153,7 +156,7 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, 
     const obs = validarObservacao(observacao, false);
     let orc = orcamentoAberto(db, card.id);
     if (!orc || orc.pdf_midia_id || orc.decisao) {
-      orc = { id: db.prepare("INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, '[]', ?)").run(card.id, agora).lastInsertRowid };
+      orc = { id: db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, ?, ?)').run(card.id, ultimasPecas(db, card.id), agora).lastInsertRowid };
     }
     db.prepare('UPDATE kb_orcamentos SET pdf_midia_id = ?, enviado_por = ?, enviado_em = ? WHERE id = ?').run(pdf.id, op, agora, orc.id);
     textos.push('Orçamento em PDF anexado.');
@@ -264,5 +267,5 @@ function operadoresConhecidos(db, { agora = new Date() } = {}) {
 }
 
 module.exports = {
-  ErroAcao, validarOperador, moverCard, arquivarCard, desarquivarCard, definirMecanico, buscar, operadoresConhecidos,
+  ultimasPecas, ErroAcao, validarOperador, moverCard, arquivarCard, desarquivarCard, definirMecanico, buscar, operadoresConhecidos,
 };
