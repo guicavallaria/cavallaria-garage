@@ -98,8 +98,8 @@ test('migração 015: cards já aprovados no setor de peças ganham as peças "a
   const db = banco();
   const { card } = aprovado(db);
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 1), ['015_pecas_separacao.js']);
-  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js']);
+  assert.deepEqual(reverter(db, undefined, 2), ['016_pdf_pecas.js', '015_pecas_separacao.js']);
+  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js']);
   assert.deepEqual(pecas.listar(db, card.id).map((p) => p.situacao), ['a_definir', 'a_definir', 'a_definir']);
 });
 

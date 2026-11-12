@@ -17,6 +17,7 @@ const perfis = require('../acesso/perfis');
 const auditoria = require('../acesso/auditoria');
 const fluxo = require('./fluxo');
 const pecas = require('./pecas');
+const orcamentoPdf = require('./orcamento-pdf');
 
 // Login de mecânico assina tudo com o próprio nome: o operador (e o "feito por" do checklist)
 // vem da sessão, nunca do que o navegador mandou. Os demais perfis são contas de setor,
@@ -456,7 +457,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   // ---------- setor de orçamento e peças (kanban/fluxo.js) ----------
   // Peças para a pergunta "o que orçar?": as dos checklists do card (marcadas "Necessita troca" ou
   // digitadas na revisão) e as da última solicitação (devolução da aprovação).
-  r.get('/cards/:id/pecas-sugeridas', (req, res) => responder(res, () => {
+  r.get('/cards/:id/pecas-sugeridas', (req, res) => responder(res, async () => {
     const card = db.prepare('SELECT id FROM kb_cards WHERE id = ?').get(Number(req.params.id));
     if (!card) throw new acoes.ErroAcao(404, 'Card não encontrado');
     const doChecklist = db.prepare(`SELECT p.id, COALESCE(NULLIF(TRIM(p.descricao), ''), i.texto) AS descricao, p.origem, m.nome AS checklist
@@ -465,7 +466,11 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         JOIN kb_checklist_modelos m ON m.id = x.modelo_id
         LEFT JOIN kb_checklist_itens i ON i.id = p.item_id
         WHERE x.card_id = ? AND p.removido_em IS NULL ORDER BY x.id, p.ordem`).all(card.id).filter((p) => p.descricao);
-    return { checklist: doChecklist, ultima_solicitacao: json(acoes.ultimasPecas(db, card.id)) || [] };
+    // peças do PDF do orçamento (Onmotor): o aprovado pelo cliente, se houver; senão o último orçamento anexado
+    const orc = db.prepare("SELECT decisao, pdf_midia_id, via_cliente_midia_id FROM kb_orcamentos WHERE card_id = ? AND (pdf_midia_id IS NOT NULL OR via_cliente_midia_id IS NOT NULL) ORDER BY (decisao IN ('integral','parcial')) DESC, id DESC LIMIT 1").get(card.id);
+    const midia = orc ? (orc.decisao === 'parcial' && orc.via_cliente_midia_id ? orc.via_cliente_midia_id : orc.pdf_midia_id) : null;
+    const doPdf = (await arquivos.pecasDaMidia(db, storage, midia)).map((p) => ({ descricao: orcamentoPdf.descricaoDaPeca(p), codigo: p.codigo }));
+    return { checklist: doChecklist, ultima_solicitacao: json(acoes.ultimasPecas(db, card.id)) || [], pdf: doPdf };
   }, log));
 
   // PDF do orçamento ou do orçamento aprovado pelo cliente (aprovação parcial): sobe antes do "mover", que o usa pelo midia_id.

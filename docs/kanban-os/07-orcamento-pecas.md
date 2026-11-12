@@ -88,3 +88,16 @@ Código: `kanban/pecas.js`, migração `015_pecas_separacao.js` (tabela `kb_peca
   janela "Separar peças" com a lista vazia já traz as peças do orçamento; botões "⇣ Trazer do orçamento" e
   "⇣ Trazer do checklist" completam o que faltar. (Correção de 12/11/2026, OS 7216/7489.)
 - Mover o card de fase não muda a situação das peças: o pedido feito é marcado à parte.
+
+## Peças lidas do PDF do orçamento do Onmotor (12/11/2026)
+
+Código: `kanban/orcamento-pdf.js` (pdf.js da Mozilla, `pdfjs-dist`), migração `016_pdf_pecas.js`
+(`kb_midias.pdf_pecas`), testes `test/kanban_orcamento_pdf.test.js` (PDF sintético, sem dado de cliente).
+
+- Ao anexar o PDF (orçamento do compras ou orçamento aprovado pelo cliente), o servidor lê a tabela
+  **INFORMAÇÕES DE PEÇAS** do Onmotor: código (A5.2), descrição, quantidade e unidade → "MOTUL 8100 X-POWER 10W60 — 7 LT".
+  Falha na leitura não impede o anexo.
+- Na aprovação, a separação recebe as peças do **PDF aprovado** (parcial: o do cliente; integral: o orçamento).
+  Sem peças lidas no PDF, vale a lista da solicitação.
+- Janela "Separar peças": com a lista vazia, já vem com as peças do PDF; senão, botão **⇣ Trazer do PDF do
+  orçamento (N)**. PDFs anexados antes desta versão são lidos do bucket na primeira vez que a janela abre.

@@ -2,6 +2,7 @@
 // assim cada download fica no log de auditoria (seção 12) e a URL assinada de 15 min só é
 // criada na hora do clique.
 const crypto = require('crypto');
+const orcamentoPdf = require('./orcamento-pdf');
 const { ErroAcao } = require('./acoes');
 const MAX_PDF = 30 * 1024 * 1024;
 
@@ -72,7 +73,31 @@ async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, ago
   const id = db.prepare(`INSERT INTO kb_midias (cliente_id, chave_objeto, tipo, mime, tamanho_bytes, card_id, status, autor_nome, criado_em, enviado_em)
       VALUES (?, ?, 'pdf', 'application/pdf', ?, ?, 'enviado', ?, ?, ?)`).run(`${tipo}-${crypto.randomUUID()}`, chave, bytes.length, card.id, operador, agora, agora).lastInsertRowid;
   db.prepare('UPDATE kb_midias SET legenda = ? WHERE id = ?').run(`${TIPOS_PDF_CARD[tipo]}-os${card.os_numero}-${id}.pdf`, id);
-  return { midia_id: id };
+  const pecas = await lerPecasDoPdf(db, id, bytes);
+  return { midia_id: id, pecas_lidas: pecas ? pecas.length : null };
 }
 
-module.exports = { caminhoAbrir, caminhoBaixar, nomeDoPdf, nomeDaMidia, urlDoPdf, urlParaBaixar, salvarPdfDoCard };
+// Peças da tabela "INFORMAÇÕES DE PEÇAS" do PDF do Onmotor, guardadas na mídia (kb_midias.pdf_pecas).
+// Falha na leitura não impede o anexo: fica sem peças lidas (NULL) e a separação usa a solicitação.
+async function lerPecasDoPdf(db, midiaId, bytes) {
+  try {
+    const pecas = await orcamentoPdf.pecasDoPdf(bytes);
+    db.prepare('UPDATE kb_midias SET pdf_pecas = ? WHERE id = ?').run(JSON.stringify(pecas), midiaId);
+    return pecas;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Peças já lidas da mídia; PDF enviado antes da leitura existir (NULL) é lido agora do bucket.
+async function pecasDaMidia(db, storage, midiaId) {
+  const m = midiaId ? db.prepare("SELECT id, chave_objeto, pdf_pecas FROM kb_midias WHERE id = ? AND tipo = 'pdf' AND removido_em IS NULL").get(Number(midiaId)) : null;
+  if (!m) return [];
+  if (m.pdf_pecas !== null && m.pdf_pecas !== undefined) { try { return JSON.parse(m.pdf_pecas) || []; } catch (_) { return []; } }
+  if (!storage || !storage.configurado) return [];
+  let bytes;
+  try { bytes = await storage.ler(m.chave_objeto); } catch (_) { return []; }
+  return (await lerPecasDoPdf(db, m.id, bytes)) || [];
+}
+
+module.exports = { lerPecasDoPdf, pecasDaMidia, caminhoAbrir, caminhoBaixar, nomeDoPdf, nomeDaMidia, urlDoPdf, urlParaBaixar, salvarPdfDoCard };

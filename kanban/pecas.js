@@ -9,6 +9,7 @@
 // Também dá para incluir peça que não estava na solicitação. Cada gravação vira um registro na
 // linha do tempo do card.
 const acoes = () => require('./acoes'); // acoes.js usa este módulo na aprovação
+const { descricaoDaPeca } = require('./orcamento-pdf');
 
 const SITUACOES = ['a_definir', 'estoque', 'pedir', 'pedido', 'fora'];
 const NOME = { a_definir: 'a separar', estoque: 'em estoque', pedir: 'para pedir', pedido: 'pedido feito', fora: 'fora (não aprovada)' };
@@ -21,7 +22,12 @@ function semearDaAprovacao(db, card, orcamento, { op, agora }) {
     .run(agora, card.id, orcamento.id);
   if (db.prepare('SELECT 1 FROM kb_pecas WHERE orcamento_id = ? AND removido_em IS NULL').get(orcamento.id)) return 0;
   let pecas = [];
-  try { pecas = JSON.parse(orcamento.pecas || '[]') || []; } catch (_) { pecas = []; }
+  // 1º: as peças lidas do PDF aprovado (parcial: o do cliente; integral: o orçamento enviado)
+  const midiaAprovada = orcamento.decisao === 'parcial' ? orcamento.via_cliente_midia_id : orcamento.pdf_midia_id;
+  const doPdf = midiaAprovada ? db.prepare('SELECT pdf_pecas FROM kb_midias WHERE id = ?').get(midiaAprovada) : null;
+  try { pecas = (JSON.parse((doPdf && doPdf.pdf_pecas) || '[]') || []).map((p) => ({ descricao: descricaoDaPeca(p) })); } catch (_) { pecas = []; }
+  // 2º: as da solicitação (as que foram pedidas ao entrar em Orçamento)
+  if (!pecas.length) { try { pecas = JSON.parse(orcamento.pecas || '[]') || []; } catch (_) { pecas = []; } }
   // solicitação sem peças (card pulou o Orçamento): usa as da última que tinha
   if (!pecas.length) { try { pecas = JSON.parse(acoes().ultimasPecas(db, card.id)) || []; } catch (_) { pecas = []; } }
   const ins = db.prepare('INSERT INTO kb_pecas (card_id, orcamento_id, descricao, criado_em, criado_por) VALUES (?, ?, ?, ?, ?)');

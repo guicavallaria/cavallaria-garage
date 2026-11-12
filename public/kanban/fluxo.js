@@ -449,13 +449,16 @@
     const itens = (card.pecas || []).map((p) => ({ id: p.id, descricao: p.descricao, situacao: p.situacao }));
     const opcoes = ['estoque', 'pedir', 'pedido', 'fora'];
     // peças do orçamento (última solicitação com peças) e dos checklists do card
-    let sug = { checklist: [], ultima_solicitacao: [] };
+    let sug = { checklist: [], ultima_solicitacao: [], pdf: [] };
     try { sug = await ctx.api(`/api/kanban/cards/${card.id}/pecas-sugeridas`); } catch (_) { /* segue sem sugestões */ }
+    sug.pdf = sug.pdf || [];
     const tem = (d) => itens.some((i) => i.descricao.toLowerCase() === String(d).toLowerCase());
     const faltando = (lista) => lista.filter((p) => p.descricao && !tem(p.descricao));
     const trazer = (lista, origem) => { for (const p of faltando(lista)) itens.push({ id: null, descricao: p.descricao, situacao: 'a_definir', origem }); };
-    const trouxe = !itens.length && faltando(sug.ultima_solicitacao).length > 0;
-    if (!itens.length) trazer(sug.ultima_solicitacao, 'orcamento'); // lista vazia: já traz as peças do orçamento
+    // lista vazia: já traz as peças do PDF do orçamento (Onmotor) ou, sem PDF lido, as da solicitação
+    const primeira = sug.pdf.length ? sug.pdf : sug.ultima_solicitacao;
+    const trouxe = !itens.length && faltando(primeira).length > 0 ? (sug.pdf.length ? 'pdf' : 'orc') : '';
+    if (!itens.length) trazer(primeira, 'orcamento');
     return new Promise((resolve) => {
       function fechar(valor) {
         m.hidden = true;
@@ -466,12 +469,13 @@
       function desenhar(erro = '') {
         const n = itens.filter((i) => i.situacao === 'a_definir').length;
         const fOrc = faltando(sug.ultima_solicitacao).length;
+        const fPdf = faltando(sug.pdf).length;
         const fChk = faltando(sug.checklist).length;
         m.innerHTML = `<form class="kb-modal-caixa kb-modal-fluxo kb-modal-separar">
           <h2>Separar peças</h2>
           <p class="kb-modal-dica">OS ${esc(card.os_numero)}${card.placa ? ` · ${esc(card.placa)}` : ''} — marque o que tem em estoque e o que precisa pedir.
             As "para pedir" entram no painel de peças pendentes de pedido.</p>
-          ${trouxe ? '<p class="kb-modal-dica">⇣ Peças trazidas do orçamento. Marque cada uma e grave.</p>' : ''}
+          ${trouxe ? `<p class="kb-modal-dica">⇣ Peças trazidas ${trouxe === 'pdf' ? 'do PDF do orçamento' : 'do orçamento'}. Marque cada uma e grave.</p>` : ''}
           ${itens.length ? `<div class="kb-sep-todos">Marcar todas: ${opcoes.map((s) => `<button type="button" class="kb-botao kb-botao-sec" data-todas="${s}">${SIT[s].icone} ${SIT[s].rotulo}</button>`).join('')}</div>` : ''}
           <ul class="kb-sep-edit">${itens.length ? itens.map((it, i) => `<li>
             <div class="kb-sep-nome">${esc(it.descricao)}${it.id ? '' : ` <small>${{ orcamento: 'do orçamento', checklist: 'do checklist' }[it.origem] || 'incluída agora'}</small>`}
@@ -479,7 +483,7 @@
             <div class="kb-sep-opcoes" role="radiogroup" aria-label="Situação de ${esc(it.descricao)}">${opcoes.map((s) => `<label class="kb-sep-op kb-pc-${s}">
               <input type="radio" name="sit${i}" value="${s}" data-i="${i}" ${it.situacao === s ? 'checked' : ''}> ${SIT[s].icone} ${SIT[s].rotulo}</label>`).join('')}</div>
           </li>`).join('') : '<li class="kb-vazio">Nenhuma peça lançada no orçamento nem nos checklists deste card. Inclua abaixo.</li>'}</ul>
-          ${fOrc || fChk ? `<div class="kb-sep-todos">${fOrc ? `<button type="button" class="kb-botao kb-botao-sec" data-trazer="orc">⇣ Trazer do orçamento (${fOrc})</button>` : ''}${fChk ? `<button type="button" class="kb-botao kb-botao-sec" data-trazer="chk">⇣ Trazer do checklist (${fChk})</button>` : ''}</div>` : ''}
+          ${fPdf || fOrc || fChk ? `<div class="kb-sep-todos">${fPdf ? `<button type="button" class="kb-botao" data-trazer="pdf">⇣ Trazer do PDF do orçamento (${fPdf})</button>` : ''}${fOrc ? `<button type="button" class="kb-botao kb-botao-sec" data-trazer="orc">⇣ Trazer do orçamento (${fOrc})</button>` : ''}${fChk ? `<button type="button" class="kb-botao kb-botao-sec" data-trazer="chk">⇣ Trazer do checklist (${fChk})</button>` : ''}</div>` : ''}
           <div class="kb-add-peca"><input type="text" maxlength="300" placeholder="Incluir peça que não estava no orçamento" data-nova aria-label="Nova peça">
             <button type="button" class="kb-botao" data-add>+ Incluir</button></div>
           ${n ? `<p class="kb-modal-dica">🧩 Falta separar ${n} peça(s). Dá para gravar assim e terminar depois.</p>` : ''}
@@ -507,7 +511,7 @@
         if (b.hasAttribute('data-cancelar')) fechar(null);
         else if (b.hasAttribute('data-add')) incluir();
         else if (b.dataset.todas) { for (const it of itens) it.situacao = b.dataset.todas; desenhar(); }
-        else if (b.dataset.trazer) { if (b.dataset.trazer === 'orc') trazer(sug.ultima_solicitacao, 'orcamento'); else trazer(sug.checklist, 'checklist'); desenhar(); }
+        else if (b.dataset.trazer) { if (b.dataset.trazer === 'pdf' || b.dataset.trazer === 'orc') trazer(b.dataset.trazer === 'pdf' ? sug.pdf : sug.ultima_solicitacao, 'orcamento'); else trazer(sug.checklist, 'checklist'); desenhar(); }
         else if (b.dataset.tirar !== undefined) { itens.splice(Number(b.dataset.tirar), 1); desenhar(); }
       };
       m.onkeydown = (ev) => {
