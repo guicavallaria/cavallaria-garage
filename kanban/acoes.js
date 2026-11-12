@@ -43,7 +43,7 @@ function evento(db, cardId, tipo, texto, dados, operador, agora, midiaId = null)
 // Move o card. `faseAtual` (opcional) é a fase que a tela mostrava: se outra pessoa já moveu o
 // card, devolve 409 em vez de sobrescrever sem saber. `papel` vem do login (kanban/fluxo.js) e
 // as exigências da passagem (peças, PDF, aprovação, prazo) chegam nos demais campos.
-function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas, pdfMidiaId, decisao, observacao, prazoDias }, { agora = agoraUtc() } = {}) {
+function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias }, { agora = agoraUtc() } = {}) {
   const op = validarOperador(operador);
   const destino = Number(faseId);
   const nomeDestino = nomeFase(db, destino);
@@ -61,13 +61,15 @@ function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas
 
     exigirPecasChegadas(db, c, destino);
     const origem = nomeFase(db, c.fase_id);
-    const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, decisao, observacao, prazoDias, agora });
+    const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, agora });
     // Mover libera o bloqueio de auto-arquivamento ligado pelo "Desarquivar". Prazo de peças só vale em Aguardando Peças.
     db.prepare(`UPDATE kb_cards SET fase_id = ?, fase_desde = ?, auto_arquivar_bloqueado = 0,
                 pecas_prazo_dias = ?, pecas_prazo_em = ?, atualizado_em = ? WHERE id = ?`)
       .run(destino, agora, extra.prazo ? extra.prazo.dias : null, extra.prazo ? extra.prazo.em : null, agora, c.id);
     evento(db, c.id, 'fase', `Movido de ${origem} para ${nomeDestino} por ${op} em ${formatarBR(agora)}${extra.texto ? `\n${extra.texto}` : ''}`,
       { de: c.fase_id, para: destino, ...extra.dados }, op, agora, extra.midiaId);
+    // Orçamento 2, 3…: cada opção extra entra na linha do tempo com o seu PDF
+    for (const x of extra.eventosPdf || []) evento(db, c.id, 'pdf', x.texto, x.dados, op, agora, x.midiaId);
 
     // Regra da fase 9: se a OS já foi finalizada no Onmotor, arquiva na hora.
     if (destino === 9 && c.os_finalizada_em) arquivarFinalizadosNaFase9(db, agora);
@@ -93,6 +95,29 @@ function exigirPecasChegadas(db, card, destino) {
 
 // ---------- exigências da passagem de fase (kanban/fluxo.js) ----------
 const MAX_PECAS = 100;
+const MAX_OPCOES = 5; // Orçamento 1 a 5
+
+// Mais uma opção de orçamento (Orçamento N) no orçamento já enviado e ainda sem decisão da aprovação.
+function adicionarOpcaoOrcamento(db, cardId, orcamentoId, { pdfMidiaId, operador, papel = 'total' }, { agora = agoraUtc() } = {}) {
+  const op = validarOperador(operador);
+  if (!['total', 'orcamento'].includes(papel)) throw new ErroAcao(403, 'Só o compras (orçamento e peças) ou quem tem movimentação total anexa orçamento');
+  return db.transaction(() => {
+    const card = cardOu404(db, cardId);
+    if (card.arquivado_em) throw new ErroAcao(409, 'Card arquivado: desarquive para anexar');
+    const orc = db.prepare('SELECT * FROM kb_orcamentos WHERE id = ? AND card_id = ?').get(Number(orcamentoId), card.id);
+    if (!orc) throw new ErroAcao(404, 'Orçamento não encontrado');
+    if (orc.id !== orcamentoAberto(db, card.id).id || orc.decisao) throw new ErroAcao(409, 'Este orçamento já foi decidido: não recebe mais opções');
+    if (!orc.pdf_midia_id) throw new ErroAcao(409, 'Anexe o Orçamento 1 ao enviar o card para a aprovação');
+    const ids = require('./pecas').opcoesDoOrcamento(orc);
+    if (ids.length >= MAX_OPCOES) throw new ErroAcao(400, `No máximo ${MAX_OPCOES} orçamentos (opções)`);
+    const n = ids.length + 1;
+    const pdf = pdfDoCard(db, card, pdfMidiaId, `do Orçamento ${n}`);
+    db.prepare('UPDATE kb_orcamentos SET opcoes = ? WHERE id = ?').run(JSON.stringify([...ids, pdf.id]), orc.id);
+    evento(db, card.id, 'pdf', `Orçamento ${n} (opção de escolha pelo cliente) anexado por ${op}`, { orcamento_id: orc.id, opcao: n }, op, agora, pdf.id);
+    db.prepare('UPDATE kb_cards SET atualizado_em = ? WHERE id = ?').run(agora, card.id);
+    return { opcao: n, opcoes: n };
+  })();
+}
 
 function validarPecas(pecas) {
   const lista = (Array.isArray(pecas) ? pecas : []).map((p) => ({
@@ -117,7 +142,8 @@ function pdfDoCard(db, card, midiaId, oQue) {
   const id = Number(midiaId);
   const m = id ? db.prepare("SELECT * FROM kb_midias WHERE id = ? AND tipo = 'pdf' AND status = 'enviado' AND removido_em IS NULL").get(id) : null;
   if (!m || m.card_id !== card.id) throw new ErroAcao(400, `Anexe o PDF ${oQue}`, { exige: 'pdf' });
-  if (db.prepare('SELECT 1 FROM kb_orcamentos WHERE pdf_midia_id = ? OR via_cliente_midia_id = ?').get(id, id)) {
+  // já usado como orçamento, como via do cliente ou como opção (Orçamento 2, 3…) de algum orçamento
+  if (db.prepare('SELECT 1 FROM kb_orcamentos o WHERE o.pdf_midia_id = ? OR o.via_cliente_midia_id = ? OR (o.opcoes IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(o.opcoes) j WHERE j.value = ?))').get(id, id, id)) {
     throw new ErroAcao(400, 'Este PDF já foi usado: anexe o arquivo de novo', { exige: 'pdf' });
   }
   return m;
@@ -129,9 +155,9 @@ const ultimasPecas = (db, cardId) => (db.prepare("SELECT pecas FROM kb_orcamento
 const orcamentoAberto = (db, cardId) => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(cardId);
 const listaPecas = (pecas) => pecas.map((p) => `• ${p.descricao}`).join('\n');
 
-function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, observacao, prazoDias, agora }) {
+function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, agora }) {
   const exige = fluxo.exigencias(card.fase_id, destino);
-  const out = { texto: '', dados: {}, midiaId: null, prazo: null };
+  const out = { texto: '', dados: {}, midiaId: null, prazo: null, eventosPdf: [] };
   const textos = [];
 
   if (exige.includes('aprovacao')) {
@@ -139,15 +165,27 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, 
     const obs = validarObservacao(observacao, false);
     const via = decisao === 'parcial' ? pdfDoCard(db, card, pdfMidiaId, 'do orçamento aprovado pelo cliente (aprovação parcial)') : null;
     let orc = orcamentoAberto(db, card.id);
-    if (!orc) orc = { id: db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, ?, ?)').run(card.id, ultimasPecas(db, card.id), agora).lastInsertRowid };
-    db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
-      .run(decisao, obs, via ? via.id : null, op, agora, orc.id);
+    if (!orc) orc = db.prepare('SELECT * FROM kb_orcamentos WHERE id = ?').get(db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, ?, ?)').run(card.id, ultimasPecas(db, card.id), agora).lastInsertRowid);
+    // orçamento com opções (Orçamento 1, 2…): na aprovação integral, qual o cliente escolheu
+    const opcoes = orc.decisao ? [] : require('./pecas').opcoesDoOrcamento(orc);
+    let opcao = null;
+    if (decisao === 'integral' && opcoes.length > 1) {
+      opcao = Number(opcaoAprovada);
+      if (!Number.isInteger(opcao) || opcao < 1 || opcao > opcoes.length) {
+        throw new ErroAcao(400, `Escolha qual orçamento o cliente aprovou (Orçamento 1 a ${opcoes.length})`, { exige: 'opcao', opcoes: opcoes.length });
+      }
+    }
+    db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, opcao_aprovada = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
+      .run(decisao, obs, via ? via.id : null, opcao, op, agora, orc.id);
     // peças do orçamento aprovado entram "a separar" para o compras (estoque / pedido)
     require('./pecas').semearDaAprovacao(db, card, db.prepare('SELECT * FROM kb_orcamentos WHERE id = ?').get(orc.id), { op, agora });
-    textos.push(decisao === 'integral' ? 'Orçamento aprovado integralmente.' : 'Orçamento aprovado parcialmente — anexado o orçamento aprovado pelo cliente.');
+    textos.push(decisao === 'integral'
+      ? (opcao ? `Orçamento aprovado integralmente — o cliente escolheu o Orçamento ${opcao} (de ${opcoes.length} opções).` : 'Orçamento aprovado integralmente.')
+      : 'Orçamento aprovado parcialmente — anexado o orçamento aprovado pelo cliente.');
     if (obs) textos.push(`Observação: ${obs}`);
-    Object.assign(out.dados, { orcamento_id: orc.id, decisao, observacao: obs });
+    Object.assign(out.dados, { orcamento_id: orc.id, decisao, observacao: obs, ...(opcao ? { opcao_aprovada: opcao } : {}) });
     if (via) out.midiaId = via.id;
+    else if (opcao) out.midiaId = opcoes[opcao - 1]; // o PDF escolhido vai junto no registro
   }
 
   if (exige.includes('pecas')) {
@@ -168,16 +206,25 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, decisao, 
   }
 
   if (exige.includes('orcamento_pdf')) {
-    const pdf = pdfDoCard(db, card, pdfMidiaId, 'do orçamento');
+    // um PDF por opção de orçamento (Orçamento 1, 2, 3…); sem lista, o PDF único de sempre
+    const ids = Array.isArray(pdfMidiaIds) && pdfMidiaIds.length ? pdfMidiaIds.map(Number) : [pdfMidiaId];
+    if (ids.length > MAX_OPCOES) throw new ErroAcao(400, `No máximo ${MAX_OPCOES} orçamentos (opções) por vez`);
+    if (new Set(ids).size !== ids.length) throw new ErroAcao(400, 'O mesmo PDF foi anexado duas vezes', { exige: 'pdf' });
+    const pdfs = ids.map((mid, i) => pdfDoCard(db, card, mid, ids.length > 1 ? `do Orçamento ${i + 1}` : 'do orçamento'));
+    const pdf = pdfs[0];
     const obs = validarObservacao(observacao, false);
     let orc = orcamentoAberto(db, card.id);
     if (!orc || orc.pdf_midia_id || orc.decisao) {
       orc = { id: db.prepare('INSERT INTO kb_orcamentos (card_id, pecas, solicitado_em) VALUES (?, ?, ?)').run(card.id, ultimasPecas(db, card.id), agora).lastInsertRowid };
     }
-    db.prepare('UPDATE kb_orcamentos SET pdf_midia_id = ?, enviado_por = ?, enviado_em = ? WHERE id = ?').run(pdf.id, op, agora, orc.id);
-    textos.push('Orçamento em PDF anexado.');
+    db.prepare('UPDATE kb_orcamentos SET pdf_midia_id = ?, opcoes = ?, opcao_aprovada = NULL, enviado_por = ?, enviado_em = ? WHERE id = ?')
+      .run(pdf.id, pdfs.length > 1 ? JSON.stringify(pdfs.map((p) => p.id)) : null, op, agora, orc.id);
+    textos.push(pdfs.length > 1
+      ? `${pdfs.length} orçamentos em PDF anexados — opções de escolha pelo cliente (Orçamento 1 ${pdfs.length === 2 ? 'e' : 'a'} ${pdfs.length}). Este é o Orçamento 1.`
+      : 'Orçamento em PDF anexado.');
+    pdfs.slice(1).forEach((p, i) => out.eventosPdf.push({ midiaId: p.id, texto: `Orçamento ${i + 2} (opção de escolha pelo cliente)`, dados: { orcamento_id: orc.id, opcao: i + 2 } }));
     if (obs) textos.push(`Observação: ${obs}`);
-    Object.assign(out.dados, { orcamento_id: orc.id, observacao: obs });
+    Object.assign(out.dados, { orcamento_id: orc.id, observacao: obs, ...(pdfs.length > 1 ? { opcoes: pdfs.length } : {}) });
     out.midiaId = pdf.id;
   }
 
@@ -300,5 +347,5 @@ function operadoresConhecidos(db, { agora = new Date() } = {}) {
 }
 
 module.exports = {
-  ultimasPecas, ErroAcao, validarOperador, moverCard, arquivarCard, desarquivarCard, definirMecanico, definirUrgente, buscar, operadoresConhecidos,
+  ultimasPecas, ErroAcao, validarOperador, moverCard, adicionarOpcaoOrcamento, arquivarCard, desarquivarCard, definirMecanico, definirUrgente, buscar, operadoresConhecidos,
 };

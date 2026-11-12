@@ -24,7 +24,20 @@
   const botaoAprovado = (c, cls = 'kb-g-pdf') => (c.orcamento && c.orcamento.aprovado_url
     ? `<a class="${cls} kb-aprovado" href="${esc(c.orcamento.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : '');
 
-  // Quilometragem da OS: "96361" → "96.361 km"; vazio ou 0 = não informada (null).
+  // Orçamento com opções para o cliente (Orçamento 1, 2…): aviso e um link por opção; a aprovada ganha ✅.
+  function opcoesHtml(o, cls = 'kb-opc-aviso') {
+    const lista = (o && o.opcoes) || [];
+    if (lista.length < 2) return '';
+    const escolhida = lista.find((x) => x.aprovada);
+    const titulo = !o.decisao ? `⚠ Orçamento com opções de escolha pelo cliente (${lista.length})`
+      : escolhida ? `Opções apresentadas ao cliente (${lista.length}): escolhido o Orçamento ${escolhida.numero}`
+        : `Opções apresentadas ao cliente (${lista.length})`;
+    return `<div class="${cls}${o.decisao ? ' kb-opc-decidido' : ''}"><strong>${titulo}</strong>
+      <span class="kb-opc-links">${lista.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener"${x.aprovada ? ' class="kb-aprovado"' : ''}>${x.aprovada ? '✅' : '📄'} Orçamento ${x.numero}${x.aprovada ? ' (aprovado)' : ''}</a>`).join('')}</span></div>`;
+  }
+  const temOpcoes = (c) => Boolean(c.orcamento && !c.orcamento.decisao && (c.orcamento.opcoes || []).length > 1);
+
+  // Quilometragem: 96361 → "96.361 km"; vazio ou 0 = não informada (null).
   function kmTexto(km) {
     const n = Number(String(km ?? '').replace(/D/g, ''));
     return Number.isFinite(n) && n > 0 ? `${n.toLocaleString('pt-BR')} km` : null;
@@ -94,8 +107,9 @@
   function cardGrande(ctx, c, agora) {
     const motivo = motivoPiscar(c, agora);
     const veiculo = [c.marca, c.modelo].filter(Boolean).join(' ');
-    const pdf = c.orcamento && c.orcamento.pdf_url && c.fase_id === FASE.APROVACAO
-      ? `<a class="kb-g-pdf" href="${esc(c.orcamento.pdf_url)}" target="_blank" rel="noopener">📄 Ver orçamento (PDF)</a>` : '';
+    const pdf = c.fase_id !== FASE.APROVACAO || !c.orcamento ? ''
+      : temOpcoes(c) ? opcoesHtml(c.orcamento)
+        : c.orcamento.pdf_url ? `<a class="kb-g-pdf" href="${esc(c.orcamento.pdf_url)}" target="_blank" rel="noopener">📄 Ver orçamento (PDF)</a>` : '';
     const acoes = acoesDoCard(ctx, c);
     const separar = podeSeparar(ctx) && ([FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id) || (c.pecas || []).length) && c.fase_id !== FASE.APROVACAO
       ? `<button type="button" class="kb-botao${contarPecas(c).a_definir || !(c.pecas || []).length ? '' : ' kb-botao-sec'}" data-fluxo-separar="${c.id}">📦 Separar peças</button>` : '';
@@ -107,7 +121,7 @@
         <span class="kb-g-tempo" title="Tempo nesta fase">${dhm(naFase(c, agora))}</span>
       </div>
       ${c.urgente_em ? '<div class="kb-urgente-selo">🚨 SERVIÇO URGENTE</div>' : ''}
-      <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}${kmTexto(c.km) ? ` · <span title="Quilometragem da OS">${kmTexto(c.km)}</span>` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
+      <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}${kmTexto(c.km) ? ` · <span title="Quilometragem registrada no check-in de entrada">${kmTexto(c.km)}</span>` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
       ${motivo ? `<div class="kb-g-alerta">⚠ ${esc(motivo)}</div>` : ''}
       ${resumoPrazo(c, agora)}
       ${(c.pecas || []).length ? chipsPecas(c) + listaSeparacaoHtml(c, 6) : pecasHtml(c)}
@@ -294,8 +308,8 @@
     return modal;
   }
 
-  async function enviarPdf(cardId, tipo, arquivo, operador) {
-    const r = await fetch(`/api/kanban/cards/${cardId}/orcamento-pdf?tipo=${tipo}&operador=${encodeURIComponent(operador)}`, {
+  async function enviarPdf(cardId, tipo, arquivo, operador, opcao = null) {
+    const r = await fetch(`/api/kanban/cards/${cardId}/orcamento-pdf?tipo=${tipo}&operador=${encodeURIComponent(operador)}${opcao ? `&opcao=${opcao}` : ''}`, {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/pdf' }, body: arquivo,
     });
     const corpo = await r.json().catch(() => ({}));
@@ -304,6 +318,10 @@
   }
 
   const ehPdf = (f) => f && (/\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  const MAX_OPCOES = 5; // Orçamento 1 a 5 (o servidor confere o mesmo limite)
+  const itemOrcHtml = (n) => `<div class="kb-orc-item" data-orc-item>
+      <label class="kb-campo"><span data-orc-rotulo>Orçamento ${n} em PDF${n === 1 ? ' (obrigatório)' : ''}</span> <input type="file" accept="application/pdf,.pdf" data-arq="orc"></label>
+      ${n > 1 ? '<button type="button" class="kb-x" data-orc-tirar aria-label="Tirar esta opção de orçamento">✕</button>' : ''}</div>`;
 
   // Abre a janela da passagem origem → destino. Devolve os campos extras do "mover" ou null
   // (cancelou: o card fica onde está). Sem exigência, devolve {} sem abrir nada.
@@ -320,8 +338,11 @@
     const pecas = devolucao ? sugestoes.ultima_solicitacao.map((p) => ({ descricao: p.descricao, origem: p.origem })) : [];
 
     const m = caixa();
+    // orçamento enviado com opções (Orçamento 1, 2…): na aprovação integral, qual o cliente escolheu
+    const opcs = (card.orcamento && !card.orcamento.decisao && card.orcamento.opcoes) || [];
     return new Promise((resolve) => {
       let decisao = decisaoInicial || null;
+      let opcao = null;
       const titulo = exige.includes('aprovacao') ? 'Aprovação do orçamento'
         : devolucao ? 'Devolver ao Orçamento'
           : exige.includes('pecas') ? 'Peças para o orçamento'
@@ -345,6 +366,13 @@
             <label><input type="radio" name="dec" value="parcial" ${decisao === 'parcial' ? 'checked' : ''}> <strong>Aprovado parcialmente</strong><small>anexe o orçamento aprovado pelo cliente em PDF</small></label>
           </fieldset>
           <label class="kb-campo" ${decisao === 'parcial' ? '' : 'hidden'} data-via>Orçamento aprovado pelo cliente (PDF) <input type="file" accept="application/pdf,.pdf" data-arq="via"></label>`;
+          if (opcs.length > 1) {
+            corpo = `<p class="kb-opc-aviso"><strong>⚠ Orçamento com opções de escolha pelo cliente (${opcs.length})</strong></p>` + corpo
+              + `<fieldset class="kb-opcoes" data-opc ${decisao === 'integral' ? '' : 'hidden'}><legend>Qual orçamento o cliente aprovou?</legend>
+                ${opcs.map((x) => `<label><input type="radio" name="opc" value="${x.numero}" ${opcao === x.numero ? 'checked' : ''}> <strong>Orçamento ${x.numero}</strong>
+                  <small><a href="${esc(x.url)}" target="_blank" rel="noopener">abrir o PDF</a></small></label>`).join('')}
+              </fieldset>`;
+          }
         }
         if (exige.includes('pecas')) {
           corpo += `<p class="kb-modal-dica">${devolucao ? 'As peças da solicitação anterior já estão na lista: ajuste se precisar.' : 'Informe as peças que o orçamento deve cotar. Obrigatório para todo card que entra em Orçamento.'}</p>
@@ -354,7 +382,9 @@
               <button type="button" class="kb-botao" data-add>+ Adicionar</button></div>`;
         }
         if (exige.includes('orcamento_pdf')) {
-          corpo += `<label class="kb-campo">Orçamento em PDF (obrigatório) <input type="file" accept="application/pdf,.pdf" data-arq="orc"></label>`;
+          corpo += `<div data-orc-lista>${itemOrcHtml(1)}</div>
+            <button type="button" class="kb-botao kb-botao-sec" data-orc-mais>+ Adicionar Orçamento 2</button>
+            <p class="kb-modal-dica">Mais de uma opção para o cliente (ex.: peça nova ou recondicionada)? Anexe cada orçamento separado: Orçamento 1, 2, 3…</p>`;
         }
         if (exige.includes('prazo')) {
           corpo += `<label class="kb-campo">Prazo para as peças chegarem (dias) <input type="number" min="1" max="365" step="1" inputmode="numeric" data-prazo></label>
@@ -389,6 +419,14 @@
         resolve(valor);
       }
 
+      // Orçamento 1, 2, 3…: renumera depois de incluir ou tirar uma opção (sem redesenhar: não perde os arquivos escolhidos)
+      function numerarOrcs() {
+        const itens = [...m.querySelectorAll('[data-orc-item]')];
+        itens.forEach((it, i) => { it.querySelector('[data-orc-rotulo]').textContent = `Orçamento ${i + 1} em PDF${itens.length > 1 ? '' : ' (obrigatório)'}`; });
+        const mais = m.querySelector('[data-orc-mais]');
+        if (mais) { mais.textContent = `+ Adicionar Orçamento ${itens.length + 1}`; mais.hidden = itens.length >= MAX_OPCOES; }
+      }
+
       function adicionar() {
         const inp = m.querySelector('[data-nova]');
         const d = inp.value.replace(/\s+/g, ' ').trim();
@@ -405,13 +443,25 @@
         else if (b.hasAttribute('data-add')) adicionar();
         else if (b.hasAttribute('data-trazer')) { for (const s of doChecklistFaltando()) pecas.push({ descricao: s.descricao, origem: 'checklist' }); redesenhar(); }
         else if (b.dataset.tirar !== undefined) { pecas.splice(Number(b.dataset.tirar), 1); redesenhar(); }
+        else if (b.hasAttribute('data-orc-mais')) {
+          const lista = m.querySelector('[data-orc-lista]');
+          if (lista.children.length >= MAX_OPCOES) return;
+          lista.insertAdjacentHTML('beforeend', itemOrcHtml(lista.children.length + 1));
+          numerarOrcs();
+          lista.lastElementChild.querySelector('input').focus();
+        } else if (b.hasAttribute('data-orc-tirar')) { b.closest('[data-orc-item]').remove(); numerarOrcs(); }
       };
       m.onkeydown = (ev) => {
         if (ev.key === 'Escape') fechar(null);
         if (ev.key === 'Enter' && ev.target.matches('[data-nova]')) { ev.preventDefault(); adicionar(); }
       };
       m.onchange = (ev) => {
-        if (ev.target.name === 'dec') { decisao = ev.target.value; const via = m.querySelector('[data-via]'); if (via) via.hidden = decisao !== 'parcial'; }
+        if (ev.target.name === 'dec') {
+          decisao = ev.target.value;
+          const via = m.querySelector('[data-via]'); if (via) via.hidden = decisao !== 'parcial';
+          const opc = m.querySelector('[data-opc]'); if (opc) opc.hidden = decisao !== 'integral';
+        }
+        if (ev.target.name === 'opc') opcao = Number(ev.target.value);
       };
       m.onsubmit = async (ev) => {
         ev.preventDefault();
@@ -427,6 +477,10 @@
               if (!ehPdf(f)) throw new Error('Anexe o orçamento aprovado pelo cliente em PDF');
               extras.via = f;
             }
+            if (decisao === 'integral' && opcs.length > 1) {
+              if (!opcao) throw new Error('Escolha qual orçamento o cliente aprovou');
+              extras.opcao_aprovada = opcao;
+            }
           }
           if (exige.includes('pecas')) {
             const pendente = ((m.querySelector('[data-nova]') || {}).value || '').trim();
@@ -436,9 +490,9 @@
           }
           if (devolucao && !obs) throw new Error('Escreva o motivo da devolução');
           if (exige.includes('orcamento_pdf')) {
-            const f = m.querySelector('[data-arq="orc"]').files[0];
-            if (!ehPdf(f)) throw new Error('Anexe o orçamento em PDF');
-            extras.orc = f;
+            const arqs = [...m.querySelectorAll('[data-arq="orc"]')].map((i) => i.files[0]);
+            arqs.forEach((f, i) => { if (!ehPdf(f)) throw new Error(arqs.length > 1 ? `Anexe o Orçamento ${i + 1} em PDF (ou tire essa opção)` : 'Anexe o orçamento em PDF'); });
+            extras.orcs = arqs;
           }
           if (exige.includes('prazo')) {
             const dias = Number((m.querySelector('[data-prazo]') || {}).value);
@@ -447,11 +501,17 @@
           }
           if (obs) extras.observacao = obs;
           btn.disabled = true;
-          btn.textContent = extras.orc || extras.via ? 'Enviando o PDF…' : 'Movendo…';
-          const arquivo = extras.orc || extras.via;
-          if (arquivo) {
-            extras.pdf_midia_id = await enviarPdf(card.id, extras.orc ? 'orcamento' : 'via_cliente', arquivo, operador);
-            delete extras.orc; delete extras.via;
+          btn.textContent = extras.orcs && extras.orcs.length > 1 ? 'Enviando os PDFs…' : extras.orcs || extras.via ? 'Enviando o PDF…' : 'Movendo…';
+          if (extras.orcs) {
+            const ids = [];
+            for (let i = 0; i < extras.orcs.length; i++) ids.push(await enviarPdf(card.id, 'orcamento', extras.orcs[i], operador, extras.orcs.length > 1 ? i + 1 : null));
+            extras.pdf_midia_id = ids[0];
+            if (ids.length > 1) extras.pdf_midia_ids = ids;
+            delete extras.orcs;
+          }
+          if (extras.via) {
+            extras.pdf_midia_id = await enviarPdf(card.id, 'via_cliente', extras.via, operador);
+            delete extras.via;
           }
           fechar(extras);
         } catch (e) {
@@ -569,5 +629,5 @@
     });
   }
 
-  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, selecionadosChegou, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
+  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, opcoesHtml, temOpcoes, enviarPdf, MAX_OPCOES, contarPecas, pecasPainelHtml, selecionadosPedido, selecionadosChegou, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
 })();

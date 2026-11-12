@@ -75,7 +75,8 @@ test('urgente: rota e ordem do quadro (urgentes no topo, o último marcado prime
   }
 });
 
-test('estado: card traz a quilometragem da OS (km) para o quadro', async () => {
+test('estado: o km do card é o registrado no check-in de entrada (o da OS do Onmotor fica em km_onmotor)', async () => {
+  const chk = require('../kanban/checklists');
   const db = banco();
   const c = db.prepare('SELECT id FROM kb_cards ORDER BY id LIMIT 1').get();
   db.prepare("UPDATE kb_cards SET km = '96361' WHERE id = ?").run(c.id);
@@ -83,9 +84,20 @@ test('estado: card traz a quilometragem da OS (km) para o quadro', async () => {
   app.use(express.json());
   app.use('/api/kanban', criarRouter({ db, log: () => {}, criarCliente: () => null }));
   const srv = app.listen(0);
+  const doCard = async () => (await (await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/estado`)).json()).cards.find((x) => x.id === c.id);
   try {
-    const est = await (await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/estado`)).json();
-    assert.equal(est.cards.find((x) => x.id === c.id).km, '96361');
+    let card = await doCard();
+    assert.equal(card.km, null, 'sem check-in: sem km no card');
+    assert.equal(card.km_onmotor, '96361');
+    const exec = chk.iniciar(db, c.id, 'entrada', { feitoPor: 'Edson', operador: 'Luan' }, { agora: AGORA });
+    const itens = chk.itensDoModelo(chk.modeloAtivo(db, 'entrada'));
+    const itemKm = itens.find((i) => (i.componentes || []).some((x) => x.rotulo === 'KM')) || itens[0];
+    chk.responder(db, exec.execucao ? exec.execucao.id : exec.id, itemKm.id, { valor: { medidas: { KM: '97.012' } }, operador: 'Edson' }, { agora: AGORA });
+    card = await doCard();
+    assert.equal(Number(card.km), 97012, 'vale o km digitado no check-in, mesmo com a vistoria em andamento');
+    const det = await (await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/cards/${c.id}`)).json();
+    assert.equal(Number(det.card.km), 97012);
+    assert.equal(det.card.km_onmotor, '96361');
   } finally {
     srv.close();
   }

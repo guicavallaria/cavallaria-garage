@@ -98,8 +98,8 @@ test('migração 015: cards já aprovados no setor de peças ganham as peças "a
   const db = banco();
   const { card } = aprovado(db);
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 4), ['018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
-  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js']);
+  assert.deepEqual(reverter(db, undefined, 5), ['019_anexos_e_opcoes.js', '018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
+  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js', '019_anexos_e_opcoes.js']);
   assert.deepEqual(pecas.listar(db, card.id).map((p) => p.situacao), ['a_definir', 'a_definir', 'a_definir']);
 });
 
@@ -326,8 +326,8 @@ test('peça chegou: voltar do Aguardando Peças para trás continua livre; migra
   assert.equal(mover(db, card.id, F.AQUISICAO).card.fase_id, F.AQUISICAO);
   pecas.marcarChegadas(db, [a.id], { operador: 'Cauã' }, { agora: AGORA });
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db), ['018_peca_chegou.js']);
+  assert.deepEqual(reverter(db, undefined, 2), ['019_anexos_e_opcoes.js', '018_peca_chegou.js']);
   assert.equal(db.prepare('SELECT situacao FROM kb_pecas WHERE id = ?').get(a.id).situacao, 'pedido');
-  assert.deepEqual(aplicar(db), ['018_peca_chegou.js']);
+  assert.deepEqual(aplicar(db), ['018_peca_chegou.js', '019_anexos_e_opcoes.js']);
   assert.equal(pecas.listar(db, card.id).length, 3);
 });

@@ -1,4 +1,5 @@
-// Linha do tempo do card (Etapa 3): texto, foto, vídeo e áudio.
+// Linha do tempo do card (Etapa 3): texto, foto, vídeo e áudio — e, desde 12/11/2026, anexo de qualquer
+// formato (PDF, XML, planilha…), tipo "arquivo", que abre como download com o nome original.
 //
 // - Texto: pode ser editado; cada edição guarda a versão anterior (kb_eventos_versoes).
 // - Registros nunca são apagados: "remover" só marca removido_em/por (some da tela, fica auditável).
@@ -7,7 +8,7 @@
 //   aparece na linha do tempo.
 const crypto = require('crypto');
 const { ErroAcao, validarOperador } = require('./acoes');
-const { caminhoAbrir } = require('./arquivos');
+const { caminhoAbrir, caminhoBaixar } = require('./arquivos');
 
 const agoraUtc = () => new Date().toISOString();
 const MAX_TEXTO = 5000;
@@ -32,7 +33,10 @@ const TIPOS = {
     },
   },
 };
-const TIPOS_REMOVIVEIS = new Set(['texto', 'foto', 'video', 'audio']);
+// Anexo de qualquer formato: o mime vem do navegador (ou "application/octet-stream") e a extensão do nome.
+const MAX_ARQUIVO = 50 * MB;
+const RX_MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
+const TIPOS_REMOVIVEIS = new Set(['texto', 'foto', 'video', 'audio', 'arquivo']);
 // Registros do sistema gravados como texto (separação de peças, pedido feito): não se editam nem removem.
 const ACOES_AUTOMATICAS = new Set(['separacao_pecas', 'pecas_pedidas', 'pecas_chegaram', 'orcamento_peca_editada', 'orcamento_peca_removida', 'orcamento_peca_incluida', 'urgente_ativado', 'urgente_desativado']);
 const automatico = (e) => { try { return ACOES_AUTOMATICAS.has((JSON.parse(e.dados || 'null') || {}).acao); } catch (_) { return false; } };
@@ -107,7 +111,23 @@ function removerRegistro(db, eventoId, { operador }, { agora = agoraUtc() } = {}
 }
 
 // ---------- mídia ----------
-function validarPedido({ tipo, mime, tamanho, duracao }) {
+// Nome original do anexo, sem pasta e sem caracteres de controle ("orçamento fornecedor.xml").
+function nomeDoArquivo(nome) {
+  const n = String(nome || '').split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f"]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return n || null;
+}
+
+function validarPedido({ tipo, mime, tamanho, duracao, nome }) {
+  if (tipo === 'arquivo') {
+    const bytes = Number(tamanho);
+    if (!(bytes > 0)) throw new ErroAcao(400, 'Arquivo vazio');
+    if (bytes > MAX_ARQUIVO) throw new ErroAcao(413, `Arquivo grande demais (máximo ${Math.round(MAX_ARQUIVO / MB)} MB)`);
+    const nomeArq = nomeDoArquivo(nome);
+    if (!nomeArq) throw new ErroAcao(400, 'Arquivo sem nome');
+    const m = /\.([a-z0-9]{1,10})$/i.exec(nomeArq);
+    const base = RX_MIME.test(mimeBase(mime)) ? mimeBase(mime) : 'application/octet-stream';
+    return { base, ext: m ? m[1].toLowerCase() : 'bin', bytes, dur: null, nomeArq };
+  }
   const regra = TIPOS[tipo];
   if (!regra) throw new ErroAcao(400, 'Tipo de mídia inválido');
   const base = mimeBase(mime);
@@ -121,7 +141,7 @@ function validarPedido({ tipo, mime, tamanho, duracao }) {
     if (!(dur > 0)) throw new ErroAcao(400, 'Duração do vídeo não informada');
     if (dur > DURACAO_MAX_VIDEO_S + 1) throw new ErroAcao(400, 'Vídeo com mais de 2 minutos: grave um trecho menor');
   }
-  return { base, ext, bytes, dur };
+  return { base, ext, bytes, dur, nomeArq: null };
 }
 
 function novaChave(cardId, ext, agora) {
@@ -153,17 +173,18 @@ async function pedirEnvio(db, storage, cardId, dados, { agora = agoraUtc() } = {
   }
 
   const c = cardAtivo(db, cardId);
-  const { base, ext, bytes, dur } = validarPedido(dados);
+  const { base, ext, bytes, dur, nomeArq } = validarPedido(dados);
+  if (nomeArq && (dados.checklist_item_id || dados.checklist_execucao_id)) throw new ErroAcao(400, 'Anexo de arquivo vai direto no card, não em item de checklist');
   // Mídia de item de checklist: fica presa ao item (e à avaria), nunca solta no card.
   const vinculo = require('./checklists').validarVinculoMidia(db, c.id, dados) || {};
   const comMiniatura = Boolean(dados.miniatura) && (dados.tipo === 'foto' || dados.tipo === 'video');
   const chave = novaChave(c.id, ext, agora);
   const id = db.prepare(`INSERT INTO kb_midias (cliente_id, chave_objeto, chave_miniatura, tipo, mime, tamanho_bytes, duracao_s,
-      largura, altura, card_id, checklist_execucao_id, checklist_item_id, avaria_id, status, autor_nome, criado_em)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)`).run(
+      largura, altura, card_id, checklist_execucao_id, checklist_item_id, avaria_id, status, autor_nome, criado_em, nome_arquivo)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)`).run(
     clienteId, chave.objeto, comMiniatura ? chave.miniatura : null, dados.tipo, base, bytes, dur,
     Number(dados.largura) || null, Number(dados.altura) || null, c.id,
-    vinculo.execucao_id || null, vinculo.item_id || null, vinculo.avaria_id || null, op, agora,
+    vinculo.execucao_id || null, vinculo.item_id || null, vinculo.avaria_id || null, op, agora, nomeArq,
   ).lastInsertRowid;
   const m = db.prepare('SELECT * FROM kb_midias WHERE id = ?').get(id);
   return { midia_id: id, mime: base, ...(await urlsDeEnvio(storage, m)) };
@@ -215,7 +236,7 @@ async function listarEventos(db, storage, cardId) {
     SELECT e.id, e.tipo, e.texto, e.dados, e.operador_nome, e.criado_em, e.editado_em,
            (SELECT COUNT(*) FROM kb_eventos_versoes v WHERE v.evento_id = e.id) AS versoes,
            m.id AS m_id, m.tipo AS m_tipo, m.mime AS m_mime, m.chave_objeto, m.chave_miniatura,
-           m.tamanho_bytes, m.duracao_s, m.largura, m.altura
+           m.tamanho_bytes, m.duracao_s, m.largura, m.altura, m.nome_arquivo
     FROM kb_eventos e LEFT JOIN kb_midias m ON m.id = e.midia_id
     WHERE e.card_id = ? AND e.removido_em IS NULL
     ORDER BY e.criado_em DESC, e.id DESC`).all(Number(cardId));
@@ -227,11 +248,12 @@ async function listarEventos(db, storage, cardId) {
     if (e.m_id) {
       midia = {
         id: e.m_id, tipo: e.m_tipo, mime: e.m_mime, tamanho: e.tamanho_bytes, duracao: e.duracao_s,
-        largura: e.largura, altura: e.altura, url: null, miniatura_url: null,
+        largura: e.largura, altura: e.altura, nome: e.nome_arquivo || null, url: null, miniatura_url: null,
       };
       if (podeAssinar) {
         // PDF abre pela rota do app (download auditado)
-        midia.url = e.m_tipo === 'pdf' ? caminhoAbrir(e.m_id) : await storage.urlVer(e.chave_objeto);
+        // anexo de arquivo: sempre como download pela rota do app (nome original, auditado)
+        midia.url = e.m_tipo === 'pdf' ? caminhoAbrir(e.m_id) : e.m_tipo === 'arquivo' ? caminhoBaixar(e.m_id) : await storage.urlVer(e.chave_objeto);
         midia.miniatura_url = e.chave_miniatura ? await storage.urlVer(e.chave_miniatura) : null;
       }
     }
@@ -247,5 +269,5 @@ async function listarEventos(db, storage, cardId) {
 
 module.exports = {
   postarTexto, editarTexto, versoesTexto, removerRegistro, pedirEnvio, confirmarEnvio, listarEventos,
-  TIPOS, DURACAO_MAX_VIDEO_S, MAX_TEXTO,
+  TIPOS, DURACAO_MAX_VIDEO_S, MAX_TEXTO, MAX_ARQUIVO,
 };

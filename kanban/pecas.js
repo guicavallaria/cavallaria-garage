@@ -17,15 +17,33 @@ const NOME = { a_definir: 'a separar', estoque: 'em estoque', pedir: 'para pedir
 const MAX_PECAS = 150;
 const PODE = ['total', 'orcamento'];
 
+// Orçamento com opções para o cliente (Orçamento 1, 2, 3…): ids das mídias na ordem. Sem opções = só o PDF anexado.
+function opcoesDoOrcamento(orc) {
+  let ids = [];
+  try { ids = JSON.parse((orc && orc.opcoes) || '[]') || []; } catch (_) { ids = []; }
+  ids = ids.map(Number).filter(Boolean);
+  if (!ids.length && orc && orc.pdf_midia_id) ids = [orc.pdf_midia_id];
+  return ids;
+}
+// PDF que vale como "orçamento aprovado pelo cliente": parcial = o que a aprovação anexou;
+// integral = a opção escolhida (Orçamento N) ou, sem opções, o próprio orçamento enviado.
+function midiaAprovada(orc) {
+  if (!orc) return null;
+  if (orc.decisao === 'parcial') return orc.via_cliente_midia_id || null;
+  if (orc.decisao !== 'integral') return null;
+  const ids = opcoesDoOrcamento(orc);
+  return (orc.opcao_aprovada && ids[orc.opcao_aprovada - 1]) || orc.pdf_midia_id || null;
+}
+
 function semearDaAprovacao(db, card, orcamento, { op, agora }) {
   // nova aprovação substitui o que ainda não foi pedido de uma aprovação anterior
   db.prepare("UPDATE kb_pecas SET removido_em = ? WHERE card_id = ? AND removido_em IS NULL AND situacao <> 'pedido' AND (orcamento_id IS NULL OR orcamento_id <> ?)")
     .run(agora, card.id, orcamento.id);
   if (db.prepare('SELECT 1 FROM kb_pecas WHERE orcamento_id = ? AND removido_em IS NULL').get(orcamento.id)) return 0;
   let pecas = [];
-  // 1º: as peças lidas do PDF aprovado (parcial: o do cliente; integral: o orçamento enviado)
-  const midiaAprovada = orcamento.decisao === 'parcial' ? orcamento.via_cliente_midia_id : orcamento.pdf_midia_id;
-  const doPdf = midiaAprovada ? db.prepare('SELECT pdf_pecas FROM kb_midias WHERE id = ?').get(midiaAprovada) : null;
+  // 1º: as peças lidas do PDF aprovado (parcial: o do cliente; integral: a opção escolhida / o orçamento enviado)
+  const aprovada = midiaAprovada(orcamento);
+  const doPdf = aprovada ? db.prepare('SELECT pdf_pecas FROM kb_midias WHERE id = ?').get(aprovada) : null;
   try { pecas = (JSON.parse((doPdf && doPdf.pdf_pecas) || '[]') || []).map((p) => ({ descricao: descricaoDaPeca(p) })); } catch (_) { pecas = []; }
   // 2º: as da solicitação (as que foram pedidas ao entrar em Orçamento)
   if (!pecas.length) { try { pecas = JSON.parse(orcamento.pecas || '[]') || []; } catch (_) { pecas = []; } }
@@ -246,4 +264,4 @@ function marcarChegadas(db, ids, { operador, papel = 'total' }, { agora = new Da
 const pendentesDeChegada = (db, cardId) => db.prepare(`SELECT descricao, situacao FROM kb_pecas
     WHERE card_id = ? AND removido_em IS NULL AND situacao IN ('pedir','pedido') ORDER BY id`).all(Number(cardId));
 
-module.exports = { SITUACOES, NOME, semearDaAprovacao, listar, salvar, marcarPedidas, marcarChegadas, pendentesDeChegada, alterarPecaOrcamento, incluirPecaOrcamento, PODE_ORCAMENTO };
+module.exports = { SITUACOES, NOME, opcoesDoOrcamento, midiaAprovada, semearDaAprovacao, listar, salvar, marcarPedidas, marcarChegadas, pendentesDeChegada, alterarPecaOrcamento, incluirPecaOrcamento, PODE_ORCAMENTO };

@@ -42,6 +42,7 @@ function extensao(m) {
   return daChave ? daChave[1].toLowerCase() : 'bin';
 }
 function nomeDaMidia(db, m) {
+  if (m.nome_arquivo) return m.nome_arquivo; // anexo de arquivo: nome original
   if (m.tipo === 'pdf') return nomeDoPdf(db, m.id);
   const card = m.card_id ? db.prepare('SELECT os_numero FROM kb_cards WHERE id = ?').get(m.card_id) : null;
   return `${card ? `os${card.os_numero}-` : ''}${m.tipo}-${m.id}.${extensao(m)}`;
@@ -58,7 +59,7 @@ async function urlParaBaixar(db, storage, midiaId) {
 // servidor direto para o bucket e fica ligado ao card; só aparece na linha do tempo quando o card
 // muda de fase com ele (o evento de fase leva o PDF).
 const TIPOS_PDF_CARD = { orcamento: 'orcamento', via_cliente: 'orcamento-aprovado-cliente' };
-async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, agora = new Date().toISOString() }) {
+async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, opcao = null, agora = new Date().toISOString() }) {
   if (!storage || !storage.configurado) throw new ErroAcao(503, 'Armazenamento de mídia não configurado');
   if (!TIPOS_PDF_CARD[tipo]) throw new ErroAcao(400, 'Tipo de PDF inválido');
   if (!bytes || !bytes.length) throw new ErroAcao(400, 'PDF vazio');
@@ -72,7 +73,8 @@ async function salvarPdfDoCard(db, storage, { cardId, tipo, bytes, operador, ago
   await storage.enviar(chave, bytes, 'application/pdf');
   const id = db.prepare(`INSERT INTO kb_midias (cliente_id, chave_objeto, tipo, mime, tamanho_bytes, card_id, status, autor_nome, criado_em, enviado_em)
       VALUES (?, ?, 'pdf', 'application/pdf', ?, ?, 'enviado', ?, ?, ?)`).run(`${tipo}-${crypto.randomUUID()}`, chave, bytes.length, card.id, operador, agora, agora).lastInsertRowid;
-  db.prepare('UPDATE kb_midias SET legenda = ? WHERE id = ?').run(`${TIPOS_PDF_CARD[tipo]}-os${card.os_numero}-${id}.pdf`, id);
+  const n = tipo === 'orcamento' && Number.isInteger(Number(opcao)) && Number(opcao) > 1 ? Number(opcao) : null; // Orçamento 2, 3…
+  db.prepare('UPDATE kb_midias SET legenda = ? WHERE id = ?').run(`${TIPOS_PDF_CARD[tipo]}${n ? `-${n}` : ''}-os${card.os_numero}-${id}.pdf`, id);
   const pecas = await lerPecasDoPdf(db, id, bytes);
   return { midia_id: id, pecas_lidas: pecas ? pecas.length : null };
 }

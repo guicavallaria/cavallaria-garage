@@ -251,7 +251,7 @@ body.kb-perfil-mecanico #kbOperador { display: none !important; }
 }
 
 /* ---------- Etapa 3: registrar texto/foto/vídeo/áudio e linha do tempo ---------- */
-.kb-registrar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 4px 0 8px; }
+.kb-registrar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin: 4px 0 8px; }
 .kb-reg {
   display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; min-height: 58px;
   border: 1px solid var(--linha); background: #fff; border-radius: 10px; cursor: pointer; font-size: 20px;
@@ -602,3 +602,22 @@ body.kb-em-setor .kb-filtros label.kb-so-pc { display: none !important; } /* a t
 .kb-chegada { border-left-color: var(--azul); }
 .kb-chegada .kb-ped-topo .kb-n { background: var(--azul); }
 .kb-sep-chegada { margin: 6px 0; color: var(--azul); font-size: 14px; }
+
+/* anexo de arquivo (qualquer formato) na linha do tempo */
+.kb-anexo { display: inline-flex; align-items: baseline; gap: 6px; margin: 4px 8px 4px 0; overflow-wrap: anywhere; }
+.kb-anexo small, .kb-anexo-previa small { color: var(--suave); }
+.kb-anexo-previa { margin: 4px 0; overflow-wrap: anywhere; }
+@media (max-width: 420px) { .kb-registrar { grid-template-columns: repeat(3, 1fr); } }
+
+/* orçamento com opções de escolha pelo cliente (Orçamento 1, 2…) */
+.kb-opc-aviso { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: #FFF4D6; border: 1px solid #E8B93A; color: #5C4200; }
+.kb-opc-aviso strong { display: block; }
+.kb-opc-aviso.kb-opc-decidido { background: #F1F5F9; border-color: #CBD5E1; color: inherit; }
+.kb-opc-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.kb-opc-links a { color: var(--azul); font-weight: 700; }
+.kb-pc-opcoes { background: #FFF4D6; color: #5C4200; }
+.kb-orc-item { display: flex; align-items: flex-end; gap: 6px; }
+.kb-orc-item .kb-campo { flex: 1; min-width: 0; }
+.kb-orc-item .kb-x { margin-bottom: 6px; }
+[data-orc-mais] { margin: 2px 0 6px; }
+.kb-orc-opcao { padding: 4px 10px; font-size: .85rem; }

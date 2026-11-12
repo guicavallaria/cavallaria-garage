@@ -48,12 +48,20 @@ const SQL_CARDS = `
          (SELECT COUNT(*) FROM kb_midias md WHERE md.card_id = c.id AND md.status = 'enviado' AND md.removido_em IS NULL AND md.tipo <> 'pdf') AS qtd_midias,
          (SELECT x.status FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
             WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY x.id DESC LIMIT 1) AS vistoria_status,
+         -- KM digitado no check-in (vistoria de entrada): vale a finalizada mais recente; sem ela, a em andamento
+         (SELECT json_extract(r.valor, '$.medidas.KM') FROM kb_checklist_respostas r
+            WHERE r.execucao_id = (SELECT x.id FROM kb_checklist_execucoes x JOIN kb_checklist_modelos mm ON mm.id = x.modelo_id
+                                    WHERE x.card_id = c.id AND mm.codigo = 'entrada' ORDER BY (x.status = 'finalizado') DESC, x.id DESC LIMIT 1)
+              AND json_extract(r.valor, '$.medidas.KM') IS NOT NULL LIMIT 1) AS km_checkin,
          (SELECT COUNT(*) FROM launch_relatorios lr WHERE lr.card_id = c.id AND lr.removido_em IS NULL) AS qtd_launch,
          (SELECT MAX(e.criado_em) FROM kb_eventos e WHERE e.card_id = c.id AND e.removido_em IS NULL) AS ultimo_evento_em,
          (SELECT o.pecas FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pecas,
          (SELECT o.pdf_midia_id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_pdf,
          (SELECT o.decisao FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_decisao,
          (SELECT o.via_cliente_midia_id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_via,
+         (SELECT o.opcoes FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_opcoes,
+         (SELECT o.opcao_aprovada FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_opcao,
+         (SELECT o.id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_id,
          (SELECT json_group_array(json_object('id', p.id, 'descricao', p.descricao, 'situacao', p.situacao, 'desde', COALESCE(p.atualizado_em, p.criado_em)))
             FROM (SELECT * FROM kb_pecas WHERE card_id = c.id AND removido_em IS NULL ORDER BY id) p) AS pecas_json
   FROM kb_cards c
@@ -81,7 +89,9 @@ function resumoCard(c) {
     mecanico_nome: c.mecanico_nome,
     mecanico_do_card: c.kb_mecanico_id !== null && c.kb_mecanico_id !== undefined, // false = vem do painel de pátio
     tem_chassi: Boolean(c.chassi),
-    km: c.km || null, // quilometragem lida da OS do Onmotor (texto; "0" = não informada)
+    // km mostrado no card = o registrado no check-in de entrada (12/11/2026); o da OS do Onmotor fica à parte
+    km: c.km_checkin ?? null,
+    km_onmotor: c.km || null, // texto lido da OS; "0" = não informada
     arquivado_em: c.arquivado_em,
     arquivado_por: c.arquivado_por,
     qtd_midias: c.qtd_midias || 0,
@@ -97,7 +107,7 @@ function resumoCard(c) {
       pecas: json(c.orc_pecas) || [],
       pdf_url: c.orc_pdf ? arquivos.caminhoAbrir(c.orc_pdf) : null,
       decisao: c.orc_decisao || null,
-      aprovado_url: urlAprovado(c.orc_decisao, c.orc_pdf, c.orc_via),
+      ...opcoesResumo({ id: c.orc_id, decisao: c.orc_decisao, pdf_midia_id: c.orc_pdf, via_cliente_midia_id: c.orc_via, opcoes: c.orc_opcoes, opcao_aprovada: c.orc_opcao }),
     } : null,
     // separação das peças do orçamento aprovado (kanban/pecas.js): estoque / para pedir / pedido / fora
     pecas: json(c.pecas_json) || [],
@@ -106,9 +116,16 @@ function resumoCard(c) {
 
 // "Orçamento aprovado pelo cliente": no parcial, o PDF que a aprovação anexou; no integral, o próprio
 // orçamento enviado (o cliente aprovou tudo). Sem decisão de aprovação (ou devolvido), não há.
-function urlAprovado(decisao, pdfMidiaId, viaMidiaId) {
-  const id = decisao === 'parcial' ? viaMidiaId : decisao === 'integral' ? pdfMidiaId : null;
-  return id ? arquivos.caminhoAbrir(id) : null;
+// Opções de orçamento (Orçamento 1, 2…) e o PDF aprovado, para a tela.
+function opcoesResumo(o) {
+  const ids = pecas.opcoesDoOrcamento(o);
+  const aprovada = pecas.midiaAprovada(o);
+  return {
+    id: o.id || null,
+    opcoes: ids.length > 1 ? ids.map((mid, i) => ({ numero: i + 1, url: arquivos.caminhoAbrir(mid), aprovada: o.decisao === 'integral' && o.opcao_aprovada === i + 1 })) : [],
+    opcao_aprovada: o.opcao_aprovada || null,
+    aprovado_url: aprovada ? arquivos.caminhoAbrir(aprovada) : null,
+  };
 }
 
 // Responde a ação (síncrona ou assíncrona); ErroAcao vira o status certo, qualquer outro
@@ -163,7 +180,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       fonte: modoFonte(),
       fonte_configurada: fonteConfigurada(),
       storage_configurado: Boolean(storage && storage.configurado),
-      limites: { video_max_s: linhaTempo.DURACAO_MAX_VIDEO_S, texto_max: linhaTempo.MAX_TEXTO },
+      limites: { video_max_s: linhaTempo.DURACAO_MAX_VIDEO_S, texto_max: linhaTempo.MAX_TEXTO, arquivo_max_mb: Math.round(linhaTempo.MAX_ARQUIVO / 1048576) },
       fases,
       cards,
       mecanicos,
@@ -188,7 +205,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
       pdf_url: o.pdf_midia_id ? arquivos.caminhoAbrir(o.pdf_midia_id) : null, enviado_por: o.enviado_por, enviado_em: o.enviado_em,
       decisao: o.decisao, decisao_obs: o.decisao_obs, decidido_por: o.decidido_por, decidido_em: o.decidido_em,
       via_cliente_url: o.via_cliente_midia_id ? arquivos.caminhoAbrir(o.via_cliente_midia_id) : null,
-      aprovado_url: urlAprovado(o.decisao, o.pdf_midia_id, o.via_cliente_midia_id),
+      ...opcoesResumo(o),
     }));
 
   // ---------- separação das peças do orçamento aprovado (kanban/pecas.js) ----------
@@ -243,7 +260,6 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         ...resumoCard(c),
         ano_completo: c.ano,
         chassi: c.chassi,
-        km: c.km,
         cliente_nome: c.cliente_nome,
         cliente_telefone: c.cliente_telefone,
         os_entrada_em: c.os_entrada_em,
@@ -452,7 +468,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const b = req.body || {};
     const out = acoes.moverCard(db, req.params.id, {
       faseId: b.fase_id, faseAtual: b.fase_atual, operador: b.operador, papel: fluxo.papelDoUsuario(db, req.session && req.session.usuario),
-      pecas: b.pecas, pdfMidiaId: b.pdf_midia_id, decisao: b.decisao, observacao: b.observacao, prazoDias: b.prazo_dias,
+      pecas: b.pecas, pdfMidiaId: b.pdf_midia_id, pdfMidiaIds: b.pdf_midia_ids, opcaoAprovada: b.opcao_aprovada, decisao: b.decisao, observacao: b.observacao, prazoDias: b.prazo_dias,
     });
     if (out.movido) broadcast('kanban');
     return { ok: true, movido: out.movido, arquivado: out.arquivado, card: porId(out.card.id) };
@@ -499,8 +515,8 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         LEFT JOIN kb_checklist_itens i ON i.id = p.item_id
         WHERE x.card_id = ? AND p.removido_em IS NULL ORDER BY x.id, p.ordem`).all(card.id).filter((p) => p.descricao);
     // peças do PDF do orçamento (Onmotor): o aprovado pelo cliente, se houver; senão o último orçamento anexado
-    const orc = db.prepare("SELECT decisao, pdf_midia_id, via_cliente_midia_id FROM kb_orcamentos WHERE card_id = ? AND (pdf_midia_id IS NOT NULL OR via_cliente_midia_id IS NOT NULL) ORDER BY (decisao IN ('integral','parcial')) DESC, id DESC LIMIT 1").get(card.id);
-    const midia = orc ? (orc.decisao === 'parcial' && orc.via_cliente_midia_id ? orc.via_cliente_midia_id : orc.pdf_midia_id) : null;
+    const orc = db.prepare("SELECT * FROM kb_orcamentos WHERE card_id = ? AND (pdf_midia_id IS NOT NULL OR via_cliente_midia_id IS NOT NULL) ORDER BY (decisao IN ('integral','parcial')) DESC, id DESC LIMIT 1").get(card.id);
+    const midia = orc ? (pecas.midiaAprovada(orc) || orc.pdf_midia_id) : null;
     const doPdf = (await arquivos.pecasDaMidia(db, storage, midia)).map((p) => ({ descricao: orcamentoPdf.descricaoDaPeca(p), codigo: p.codigo }));
     return { checklist: doChecklist, ultima_solicitacao: json(acoes.ultimasPecas(db, card.id)) || [], pdf: doPdf };
   }, log));
@@ -509,7 +525,15 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
   r.post('/cards/:id/orcamento-pdf', express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '31mb' }), (req, res) => responder(res, async () => {
     const op = acoes.validarOperador(req.query.operador);
     if (fluxo.papelDoUsuario(db, req.session && req.session.usuario) === 'registro') throw new acoes.ErroAcao(403, fluxo.mensagemSemPermissao('registro'));
-    return arquivos.salvarPdfDoCard(db, storage, { cardId: req.params.id, tipo: String(req.query.tipo || ''), bytes: Buffer.isBuffer(req.body) ? req.body : null, operador: op });
+    return arquivos.salvarPdfDoCard(db, storage, { cardId: req.params.id, tipo: String(req.query.tipo || ''), bytes: Buffer.isBuffer(req.body) ? req.body : null, operador: op, opcao: req.query.opcao });
+  }, log));
+
+  // Mais uma opção (Orçamento N) no orçamento enviado e ainda sem decisão: o PDF sobe antes pela rota acima.
+  r.post('/cards/:id/orcamentos/:orcId/opcoes', (req, res) => responder(res, () => {
+    const b = req.body || {};
+    const out = acoes.adicionarOpcaoOrcamento(db, req.params.id, req.params.orcId, { pdfMidiaId: b.pdf_midia_id, operador: b.operador, papel: papelDe(req) });
+    broadcast('kanban');
+    return { ok: true, ...out };
   }, log));
 
   r.get('/busca', (req, res) => {

@@ -76,7 +76,8 @@ function criarStorage(env = process.env) {
       const cmd = new GetObjectCommand({
         Bucket: cfg.bucket,
         Key: chave,
-        ...(nomeArquivo ? { ResponseContentDisposition: `${baixar ? 'attachment' : 'inline'}; filename="${String(nomeArquivo).replace(/[^\w.\-]/g, '_')}"` } : {}),
+        // filename = versão só ASCII (navegador antigo); filename* = nome original com acento e espaço (RFC 5987)
+        ...(nomeArquivo ? { ResponseContentDisposition: `${baixar ? 'attachment' : 'inline'}; filename="${String(nomeArquivo).replace(/[^\w.\-]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(String(nomeArquivo)).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`)}` } : {}),
         ...(contentType ? { ResponseContentType: contentType } : {}),
       });
       return getSignedUrl(publico, cmd, { expiresIn: validade });

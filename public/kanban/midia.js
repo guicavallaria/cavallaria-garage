@@ -133,6 +133,13 @@
     });
   }
 
+  // Anexo de qualquer formato (PDF, XML, planilha…): vai como está, com o nome original.
+  function prepararArquivo(arquivo, maxMb = 50) {
+    if (!arquivo.size) throw new Error('arquivo vazio');
+    if (arquivo.size > maxMb * 1024 * 1024) throw new Error(`grande demais (máximo ${maxMb} MB)`);
+    return { tipo: 'arquivo', blob: arquivo, mime: mimeBase(arquivo.type) || 'application/octet-stream', nome: arquivo.name || 'arquivo', miniatura: null };
+  }
+
   async function prepararAudio(arquivo, duracaoConhecida = null) {
     const duracao = duracaoConhecida || (await lerDuracaoAudio(arquivo));
     return { tipo: 'audio', blob: arquivo, mime: mimeBase(arquivo.type) || 'audio/webm', duracao, miniatura: null };
@@ -226,7 +233,7 @@
       mime: preparado.mime,
       blob: preparado.blob,
       miniatura: preparado.miniatura || null,
-      meta: { tamanho: preparado.blob.size, duracao: preparado.duracao || null, largura: preparado.largura || null, altura: preparado.altura || null },
+      meta: { tamanho: preparado.blob.size, duracao: preparado.duracao || null, largura: preparado.largura || null, altura: preparado.altura || null, nome: preparado.nome || null },
       legenda: legenda || '',
       operador,
       criado_em: new Date().toISOString(),
@@ -276,7 +283,7 @@
   async function enviarItem(item) {
     const p = await postJson(`/api/kanban/cards/${item.card_id}/midias`, {
       cliente_id: item.cliente_id, tipo: item.tipo, mime: item.mime, tamanho: item.meta.tamanho, duracao: item.meta.duracao,
-      largura: item.meta.largura, altura: item.meta.altura, miniatura: Boolean(item.miniatura), operador: item.operador,
+      largura: item.meta.largura, altura: item.meta.altura, nome: item.meta.nome || undefined, miniatura: Boolean(item.miniatura), operador: item.operador,
       ...(item.vinculo || {}),
     });
     if (!p.ja_enviado) {
@@ -351,7 +358,7 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) processar(); });
 
   window.KanbanMidia = {
-    prepararFoto, prepararVideo, prepararAudio, podeGravarAudio, iniciarGravacao,
+    prepararFoto, prepararVideo, prepararAudio, prepararArquivo, podeGravarAudio, iniciarGravacao,
     enfileirar, processar, listarItens, tentarDeNovo, descartar,
     aoMudar: (fn) => { ouvintes.add(fn); avisar(); return () => ouvintes.delete(fn); },
     aoConcluir: (fn) => { concluintes.add(fn); return () => concluintes.delete(fn); },

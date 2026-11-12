@@ -169,7 +169,8 @@
       <div class="kb-card-l3">
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
-        ${KF.kmTexto(c.km) ? `<span title="Quilometragem da OS">🛣️ ${KF.kmTexto(c.km)}</span>` : ''}
+        ${KF.kmTexto(c.km) ? `<span title="Quilometragem registrada no check-in de entrada">🛣️ ${KF.kmTexto(c.km)}</span>` : ''}
+        ${KF.temOpcoes(c) ? `<span class="kb-pc kb-pc-opcoes" title="Orçamento com opções de escolha pelo cliente">⚠ ${c.orcamento.opcoes.length} opções</span>` : ''}
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
         ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
@@ -498,6 +499,33 @@
   // Peças pedidas para orçamento: editar / excluir uma por vez na solicitação em aberto (sem decisão);
   // o servidor registra cada mudança na linha do tempo.
   const podeAlterarOrc = (o) => !o.decisao && papel() !== 'registro' && cardAberto && cardAberto.card && !cardAberto.card.arquivado_em;
+  // mais uma opção (Orçamento N) no orçamento já enviado e sem decisão: só compras / movimentação total
+  const podeOpcaoOrc = (o) => podeAlterarOrc(o) && o.pdf_url && ['total', 'orcamento'].includes(papel()) && Math.max((o.opcoes || []).length, 1) < KF.MAX_OPCOES;
+  const escolherPdf = () => new Promise((resolve) => {
+    const i = document.createElement('input');
+    i.type = 'file'; i.accept = 'application/pdf,.pdf';
+    i.onchange = () => resolve(i.files[0] || null);
+    i.click();
+  });
+  async function adicionarOpcaoOrc(b) {
+    const ca = cardAberto;
+    const o = (ca.orcamentos || []).find((x) => x.id === Number(b.dataset.orc));
+    if (!o) return;
+    const n = Math.max((o.opcoes || []).length, 1) + 1;
+    const arq = await escolherPdf();
+    if (!arq) return;
+    if (!/\.pdf$/i.test(arq.name) && arq.type !== 'application/pdf') { avisar('Escolha um arquivo PDF', true); return; }
+    const op = await garantirOperador();
+    if (!op) return;
+    b.disabled = true;
+    try {
+      const midiaId = await KF.enviarPdf(ca.id, 'orcamento', arq, op, n);
+      await api(`/api/kanban/cards/${ca.id}/orcamentos/${o.id}/opcoes`, { json: { pdf_midia_id: midiaId, operador: op } });
+      avisar(`Orçamento ${n} anexado: opção de escolha pelo cliente`);
+      await abrirCard(ca.id);
+      carregar();
+    } catch (e) { avisar(e.message, true); b.disabled = false; }
+  }
   function pecaOrcHtml(o, p, j) {
     const ed = cardAberto.pecaOrc && cardAberto.pecaOrc.orc === o.id && cardAberto.pecaOrc.indice === j ? cardAberto.pecaOrc : null;
     const dados = `data-id="${j}" data-orc="${o.id}"`;
@@ -570,7 +598,9 @@
         ${o.pecas.length ? `<ul class="kb-g-pecas${i === 0 && podeAlterarOrc(o) ? ' kb-orc-pecas' : ''}">${o.pecas.map((p, j) => (i === 0 && podeAlterarOrc(o) ? pecaOrcHtml(o, p, j) : `<li>${esc(p.descricao)}</li>`)).join('')}</ul>` : ''}
         ${i === 0 && podeAlterarOrc(o) ? `<div class="kb-orc-incluir"><input type="text" class="kb-orc-incluir-in" maxlength="300" placeholder="Nova peça para o orçamento" aria-label="Nova peça para o orçamento" value="${esc(cardAberto.novaPecaOrc || '')}">
           <button type="button" class="kb-botao kb-botao-sec" data-acao="orc-peca-incluir" data-orc="${o.id}">+ Incluir peça</button></div>` : ''}
-        <div class="kb-orc-links">${o.pdf_url ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
+        ${KF.opcoesHtml(o)}
+        <div class="kb-orc-links">${o.pdf_url && !(o.opcoes || []).length ? `<a href="${esc(o.pdf_url)}" target="_blank" rel="noopener">📄 Orçamento (PDF)</a>` : ''}
+          ${i === 0 && podeOpcaoOrc(o) ? `<button type="button" class="kb-botao kb-botao-sec kb-orc-opcao" data-acao="orc-opcao-add" data-orc="${o.id}" title="Outra opção para o cliente (ex.: peça nova ou recondicionada)">+ Adicionar Orçamento ${Math.max((o.opcoes || []).length, 1) + 1}</button>` : ''}
           ${o.aprovado_url ? `<a class="kb-aprovado" href="${esc(o.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : ''}</div>
         ${o.decisao_obs ? `<p class="kb-orc-obs">${esc(o.decisao_obs)}${o.decidido_por ? ` — ${esc(o.decidido_por)}` : ''}</p>` : ''}
       </div>`).join('') + pecasHtml;
@@ -734,7 +764,7 @@
     }
 
     $('kbCabecalho').innerHTML = `
-      <span class="kb-fase-atual">${fase ? nomeNum(fase) : ''}</span> <span class="kb-km-topo" title="Quilometragem da OS no Onmotor">🛣️ ${KF.kmTexto(c.km) || 'km não informada na OS'}</span>
+      <span class="kb-fase-atual">${fase ? nomeNum(fase) : ''}</span> <span class="kb-km-topo" title="Quilometragem registrada no check-in de entrada">🛣️ ${KF.kmTexto(c.km) || 'km: aguardando o check-in de entrada'}</span>
       ${c.fase_id === 10 && c.pecas_prazo_em ? `<p class="kb-selo ${Date.parse(c.pecas_prazo_em) < Date.now() ? 'kb-selo-vencido' : 'kb-selo-prazo'}">⏳ Peças até ${dataBR(c.pecas_prazo_em)} (${c.pecas_prazo_dias} d)${Date.parse(c.pecas_prazo_em) < Date.now() ? ' — prazo vencido' : ''}</p>` : ''}
       ${c.os_finalizada_em ? `<p class="kb-selo kb-selo-fin">OS finalizada no Onmotor em ${dataBR(c.os_finalizada_em)}</p>` : ''}
       ${acoes}`;
@@ -743,7 +773,7 @@
       <h3 class="kb-sec">Veículo (Onmotor)</h3>
       <dl class="kb-dados">
         ${linha('Placa', c.placa)}${linha('Marca', c.marca)}${linha('Modelo', c.modelo)}${linha('Ano', c.ano_completo)}
-        ${linha('Chassi', c.chassi || 'ainda não lido')}${linha('KM', KF.kmTexto(c.km) || (c.km ? 'não informada na OS' : ''))}
+        ${linha('Chassi', c.chassi || 'ainda não lido')}${linha('KM na OS', KF.kmTexto(c.km_onmotor) || (c.km_onmotor ? 'não informada na OS' : ''))}
         ${linha('Motor', d.motor)}${linha('Combustível', d.combustivel)}${linha('Câmbio', d.cambio)}${linha('Cor', d.cor)}
       </dl>
       <h3 class="kb-sec">Cliente (Onmotor)</h3>
@@ -768,8 +798,9 @@
           <button type="button" class="kb-reg" data-acao="reg-video" ${semStorage ? 'disabled' : ''}>🎥<span>Vídeo</span></button>
           <button type="button" class="kb-reg" data-acao="reg-audio" ${semStorage ? 'disabled' : ''}>🎙️<span>Áudio</span></button>
           <button type="button" class="kb-reg" data-acao="reg-galeria" ${semStorage ? 'disabled' : ''}>🖼️<span>Galeria</span></button>
+          <button type="button" class="kb-reg" data-acao="reg-arquivo" ${semStorage ? 'disabled' : ''} title="PDF, XML, planilha ou qualquer outro arquivo">📎<span>Arquivo</span></button>
         </div>
-        ${semStorage ? '<p class="kb-dica">Foto, vídeo e áudio estão desligados: o armazenamento de mídia não foi configurado no servidor.</p>' : ''}`;
+        ${semStorage ? '<p class="kb-dica">Foto, vídeo, áudio e arquivos estão desligados: o armazenamento de mídia não foi configurado no servidor.</p>' : ''}`;
       return;
     }
     if (comp.tipo === 'texto') {
@@ -799,9 +830,10 @@
       if (primeiroItem) {
         if (primeiroItem.tipo === 'foto') previa = `<img class="kb-previa" src="${comp.urls[0]}" alt="Prévia da foto">`;
         else if (primeiroItem.tipo === 'video') previa = `<video class="kb-previa" src="${comp.urls[0]}" controls playsinline preload="metadata"></video>`;
+        else if (primeiroItem.tipo === 'arquivo') previa = `<p class="kb-anexo-previa">📎 <strong>${esc(primeiroItem.nome)}</strong></p>`;
         else previa = `<audio src="${comp.urls[0]}" controls preload="metadata"></audio>`;
       }
-      const resumo = prontos.map((p) => `${p.tipo === 'foto' ? 'Foto' : p.tipo === 'video' ? `Vídeo de ${Math.round(p.duracao)} s` : `Áudio${p.duracao ? ` de ${Math.round(p.duracao)} s` : ''}`} · ${M.tamanhoTexto(p.blob.size)}`);
+      const resumo = prontos.map((p) => `${p.tipo === 'arquivo' ? esc(p.nome) : p.tipo === 'foto' ? 'Foto' : p.tipo === 'video' ? `Vídeo de ${Math.round(p.duracao)} s` : `Áudio${p.duracao ? ` de ${Math.round(p.duracao)} s` : ''}`} · ${M.tamanhoTexto(p.blob.size)}`);
       el.innerHTML = `<div class="kb-comp">
           ${previa}
           ${prontos.length > 1 ? `<p class="kb-dica">${prontos.length} arquivos: ${resumo.join(' · ')}</p>` : (prontos.length ? `<p class="kb-dica">${resumo[0]}</p>` : '')}
@@ -833,7 +865,7 @@
     for (const arq of lista) {
       const tipo = tipoForcado || (arq.type.startsWith('video/') ? 'video' : arq.type.startsWith('audio/') ? 'audio' : 'foto');
       try {
-        const p = tipo === 'video' ? await M.prepararVideo(arq) : tipo === 'audio' ? await M.prepararAudio(arq) : await M.prepararFoto(arq);
+        const p = tipo === 'arquivo' ? M.prepararArquivo(arq, (estado.limites && estado.limites.arquivo_max_mb) || 50) : tipo === 'video' ? await M.prepararVideo(arq) : tipo === 'audio' ? await M.prepararAudio(arq) : await M.prepararFoto(arq);
         comp.preparados.push(p);
         comp.urls.push(URL.createObjectURL(p.blob));
         if (p.aviso) comp.avisos.push(p.aviso);
@@ -886,7 +918,7 @@
   // ---------- linha do tempo ----------
   const ICONE = {
     criado: '🆕', fase: '➡️', launch: '🔬', checklist_iniciado: '📋', checklist_finalizado: '✅', checklist_editado: '✏️', pdf: '📄', arquivado: '🗄️', desarquivado: '📤', os_finalizada_onmotor: '🏁', os_alterada_onmotor: '🔄',
-    texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️',
+    texto: '✍️', foto: '📷', video: '🎥', audio: '🎙️', arquivo: '📎',
   };
 
   // Download direto (rota do app → URL assinada como anexo): sem abrir a foto e "salvar como".
@@ -910,6 +942,7 @@
     }
     if (m.tipo === 'audio') return `<audio class="kb-player-audio" src="${esc(m.url)}" controls preload="none"></audio>`;
     if (m.tipo === 'pdf') return `<a class="kb-botao kb-botao-sec kb-botao-pdf" href="${esc(m.url)}" target="_blank" rel="noopener">📄 Abrir PDF</a>`;
+    if (m.tipo === 'arquivo') return `<span class="kb-anexo">📎 <strong>${esc(m.nome || 'arquivo')}</strong>${m.tamanho ? ` <small>${M.tamanhoTexto(m.tamanho)}</small>` : ''}</span>`;
     return `<a href="${esc(m.url)}" target="_blank" rel="noopener">Abrir arquivo</a>`;
   }
 
@@ -950,7 +983,7 @@
     const el = $('kbPendentes');
     if (!el || !cardAberto) return;
     const meus = itens.filter((i) => i.card_id === cardAberto.id);
-    const nome = { foto: 'Foto', video: 'Vídeo', audio: 'Áudio' };
+    const nome = { foto: 'Foto', video: 'Vídeo', audio: 'Áudio', arquivo: 'Arquivo' };
     el.innerHTML = meus.map((i) => {
       const pct = progresso.has(i.cliente_id) ? Math.round(progresso.get(i.cliente_id) * 100) : null;
       let situacao;
@@ -959,7 +992,7 @@
       else if (i.erro) situacao = `Nova tentativa em instantes (${esc(i.erro)})`;
       else situacao = 'Na fila';
       return `<li class="kb-pendente${i.estado === 'falhou' ? ' kb-pendente-erro' : ''}">
-        <div><strong>${ICONE[i.tipo]} ${nome[i.tipo]}${i.vinculo ? ' da vistoria' : ''}</strong> · ${M.tamanhoTexto(i.meta.tamanho)} · ${situacao}</div>
+        <div><strong>${ICONE[i.tipo] || '📎'} ${i.tipo === 'arquivo' && i.meta.nome ? esc(i.meta.nome) : nome[i.tipo]}${i.vinculo ? ' da vistoria' : ''}</strong> · ${M.tamanhoTexto(i.meta.tamanho)} · ${situacao}</div>
         ${pct !== null ? `<div class="kb-barra"><span style="width:${pct}%"></span></div>` : ''}
         ${i.estado === 'falhou' ? `<div class="kb-acoes-card"><button type="button" class="kb-botao" data-acao="fila-tentar" data-id="${i.cliente_id}">Tentar de novo</button>
           <button type="button" class="kb-botao kb-botao-sec" data-acao="fila-descartar" data-id="${i.cliente_id}">Descartar</button></div>` : ''}
@@ -1043,6 +1076,7 @@
       case 'reg-foto': $('kbInFoto').click(); break;
       case 'reg-video': $('kbInVideo').click(); break;
       case 'reg-galeria': $('kbInGaleria').click(); break;
+      case 'reg-arquivo': $('kbInArquivo').click(); break;
       case 'reg-audio': comecarGravacao(); break;
       case 'parar-gravacao': b.disabled = true; await pararGravacao(); break;
       case 'cancelar-comp': fecharCompositor(); break;
@@ -1112,6 +1146,7 @@
       case 'orc-peca-cancelar': cardAberto.pecaOrc = null; renderOrcamentos(); break;
       case 'orc-peca-salvar': await gravarPecaOrc(b, false); break;
       case 'orc-peca-incluir': await incluirPecaOrc(b); break;
+      case 'orc-opcao-add': await adicionarOpcaoOrc(b); break;
       case 'orc-peca-confirmar-excluir': await gravarPecaOrc(b, true); break;
       case 'fila-tentar': M.tentarDeNovo(b.dataset.id); break;
       case 'fila-descartar': M.descartar(b.dataset.id); break;
@@ -1141,7 +1176,7 @@
   });
 
   // Entradas de arquivo (câmera, galeria, áudio). Zeradas depois de ler para permitir escolher o mesmo arquivo de novo.
-  for (const [id, tipo] of [['kbInFoto', 'foto'], ['kbInVideo', 'video'], ['kbInAudio', 'audio'], ['kbInGaleria', null]]) {
+  for (const [id, tipo] of [['kbInFoto', 'foto'], ['kbInVideo', 'video'], ['kbInAudio', 'audio'], ['kbInGaleria', null], ['kbInArquivo', 'arquivo']]) {
     $(id).addEventListener('change', (ev) => {
       const arquivos = [...ev.target.files];
       ev.target.value = '';

@@ -14,11 +14,14 @@ O botão **🚨 SERVIÇO URGENTE** fica no card aberto, ao lado de "Mover para�
 
 O login da recepção é `luan` (perfil recepção). Em 12/11/2026 ele já estava com *Movimentação total* em produção (trocado em Administração → Usuários, registrado na auditoria), sem migração. Com isso, a recepção move cards para qualquer fase e também separa peças e marca pedidos.
 
-## Quilometragem da OS no card (12/11/2026)
+## Quilometragem no card (12/11/2026)
 
-O km lido da OS do Onmotor (`kb_cards.km`) agora aparece em mais lugares, no formato "96.361 km":
+O km aparece no formato "96.361 km":
 - no card do quadro, ao lado do mecânico;
 - no card grande do setor e da aprovação;
 - no topo do card aberto, ao lado da fase.
 
-Vazio ou "0" é tratado como não informado: no quadro não aparece nada, e no card aberto aparece "km não informada na OS". `/estado` traz `km` em cada card.
+**De onde vem (mudança do mesmo dia):** o km mostrado é o **digitado no check-in de entrada** (vistoria de entrada, item do painel com o odômetro), e não o da OS do Onmotor. Vale a vistoria finalizada mais recente; sem ela, a que está em andamento, assim que o KM for digitado.
+- Sem check-in com KM, o quadro não mostra nada e o card aberto mostra "km: aguardando o check-in de entrada".
+- O km da OS do Onmotor continua em "Veículo (Onmotor)" → "KM na OS".
+- `/estado` traz `km` (o do check-in) e `km_onmotor`. A subconsulta `km_checkin` fica em `SQL_CARDS`, em `kanban/routes.js`.
