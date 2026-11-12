@@ -169,6 +169,7 @@
       <div class="kb-card-l3">
         <span>${esc(c.primeiro_nome || 'Cliente')}</span>
         ${c.mecanico_nome ? `<span>🔧 ${esc(primeiro(c.mecanico_nome))}</span>` : ''}
+        ${KF.kmTexto(c.km) ? `<span title="Quilometragem da OS">🛣️ ${KF.kmTexto(c.km)}</span>` : ''}
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
         ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
@@ -712,7 +713,7 @@
     }
 
     $('kbCabecalho').innerHTML = `
-      <span class="kb-fase-atual">${fase ? nomeNum(fase) : ''}</span>
+      <span class="kb-fase-atual">${fase ? nomeNum(fase) : ''}</span> <span class="kb-km-topo" title="Quilometragem da OS no Onmotor">🛣️ ${KF.kmTexto(c.km) || 'km não informada na OS'}</span>
       ${c.fase_id === 10 && c.pecas_prazo_em ? `<p class="kb-selo ${Date.parse(c.pecas_prazo_em) < Date.now() ? 'kb-selo-vencido' : 'kb-selo-prazo'}">⏳ Peças até ${dataBR(c.pecas_prazo_em)} (${c.pecas_prazo_dias} d)${Date.parse(c.pecas_prazo_em) < Date.now() ? ' — prazo vencido' : ''}</p>` : ''}
       ${c.os_finalizada_em ? `<p class="kb-selo kb-selo-fin">OS finalizada no Onmotor em ${dataBR(c.os_finalizada_em)}</p>` : ''}
       ${acoes}`;
@@ -721,7 +722,7 @@
       <h3 class="kb-sec">Veículo (Onmotor)</h3>
       <dl class="kb-dados">
         ${linha('Placa', c.placa)}${linha('Marca', c.marca)}${linha('Modelo', c.modelo)}${linha('Ano', c.ano_completo)}
-        ${linha('Chassi', c.chassi || 'ainda não lido')}${linha('KM', c.km)}
+        ${linha('Chassi', c.chassi || 'ainda não lido')}${linha('KM', KF.kmTexto(c.km) || (c.km ? 'não informada na OS' : ''))}
         ${linha('Motor', d.motor)}${linha('Combustível', d.combustivel)}${linha('Câmbio', d.cambio)}${linha('Cor', d.cor)}
       </dl>
       <h3 class="kb-sec">Cliente (Onmotor)</h3>

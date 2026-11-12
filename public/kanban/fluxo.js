@@ -24,6 +24,12 @@
   const botaoAprovado = (c, cls = 'kb-g-pdf') => (c.orcamento && c.orcamento.aprovado_url
     ? `<a class="${cls} kb-aprovado" href="${esc(c.orcamento.aprovado_url)}" target="_blank" rel="noopener">✅ Abrir orçamento aprovado pelo cliente</a>` : '');
 
+  // Quilometragem da OS: "96361" → "96.361 km"; vazio ou 0 = não informada (null).
+  function kmTexto(km) {
+    const n = Number(String(km ?? '').replace(/D/g, ''));
+    return Number.isFinite(n) && n > 0 ? `${n.toLocaleString('pt-BR')} km` : null;
+  }
+
   function dhm(ms) {
     const total = Math.max(0, Math.floor(ms / 60_000));
     const d = Math.floor(total / 1440);
@@ -101,7 +107,7 @@
         <span class="kb-g-tempo" title="Tempo nesta fase">${dhm(naFase(c, agora))}</span>
       </div>
       ${c.urgente_em ? '<div class="kb-urgente-selo">🚨 SERVIÇO URGENTE</div>' : ''}
-      <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
+      <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}${kmTexto(c.km) ? ` · <span title="Quilometragem da OS">${kmTexto(c.km)}</span>` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
       ${motivo ? `<div class="kb-g-alerta">⚠ ${esc(motivo)}</div>` : ''}
       ${resumoPrazo(c, agora)}
       ${(c.pecas || []).length ? chipsPecas(c) + listaSeparacaoHtml(c, 6) : pecasHtml(c)}
@@ -538,5 +544,5 @@
     });
   }
 
-  window.KanbanFluxo = { FASE, VISOES, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
+  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, contarPecas, pecasPainelHtml, selecionadosPedido, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
 })();

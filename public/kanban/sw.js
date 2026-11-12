@@ -1,7 +1,7 @@
 // Service worker do kanban (PWA): deixa o app instalável e abre a "casca" (HTML, CSS, JS,
 // ícones) mesmo com o sinal ruim do pátio. Dados (/api) e mídias NUNCA passam pelo cache:
 // sempre vão à rede, e o envio de fotos/vídeos continua na fila do IndexedDB (midia.js).
-const VERSAO = 'kanban-v5';
+const VERSAO = 'kanban-v6';
 const CASCA = [
   '/kanban/', '/kanban/kanban.css', '/kanban/kanban.js', '/kanban/midia.js', '/kanban/checklist.js', '/kanban/sessao.js', '/kanban/fluxo.js',
   '/kanban/img/logo-cavallaria-garage.webp', '/kanban/icons/icon-192.png',

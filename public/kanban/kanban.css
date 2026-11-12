@@ -590,3 +590,6 @@ body.kb-em-setor .kb-filtros label.kb-so-pc { display: none !important; } /* a t
 .kb-botao-urgente.kb-ativo { background: #c62828; color: #fff; }
 .kb-botao-urgente.kb-ativo:hover, .kb-botao-urgente.kb-ativo:focus-visible { background: #a61f1f; }
 .kb-urgente-info { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: #c62828; }
+
+/* quilometragem da OS no topo do card aberto */
+.kb-km-topo { display: inline-block; margin-left: 6px; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: #eef0f4; color: var(--texto); vertical-align: middle; }

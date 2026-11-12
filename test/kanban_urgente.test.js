@@ -74,3 +74,19 @@ test('urgente: rota e ordem do quadro (urgentes no topo, o último marcado prime
     srv.close();
   }
 });
+
+test('estado: card traz a quilometragem da OS (km) para o quadro', async () => {
+  const db = banco();
+  const c = db.prepare('SELECT id FROM kb_cards ORDER BY id LIMIT 1').get();
+  db.prepare("UPDATE kb_cards SET km = '96361' WHERE id = ?").run(c.id);
+  const app = express();
+  app.use(express.json());
+  app.use('/api/kanban', criarRouter({ db, log: () => {}, criarCliente: () => null }));
+  const srv = app.listen(0);
+  try {
+    const est = await (await fetch(`http://127.0.0.1:${srv.address().port}/api/kanban/estado`)).json();
+    assert.equal(est.cards.find((x) => x.id === c.id).km, '96361');
+  } finally {
+    srv.close();
+  }
+});

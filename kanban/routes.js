@@ -81,6 +81,7 @@ function resumoCard(c) {
     mecanico_nome: c.mecanico_nome,
     mecanico_do_card: c.kb_mecanico_id !== null && c.kb_mecanico_id !== undefined, // false = vem do painel de pátio
     tem_chassi: Boolean(c.chassi),
+    km: c.km || null, // quilometragem lida da OS do Onmotor (texto; "0" = não informada)
     arquivado_em: c.arquivado_em,
     arquivado_por: c.arquivado_por,
     qtd_midias: c.qtd_midias || 0,

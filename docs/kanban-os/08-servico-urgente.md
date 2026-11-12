@@ -13,3 +13,12 @@ O botão **🚨 SERVIÇO URGENTE** fica no card aberto, ao lado de "Mover para�
 ## Recepção com movimentação total (12/11/2026)
 
 O login da recepção é `luan` (perfil recepção). Em 12/11/2026 ele já estava com *Movimentação total* em produção (trocado em Administração → Usuários, registrado na auditoria), sem migração. Com isso, a recepção move cards para qualquer fase e também separa peças e marca pedidos.
+
+## Quilometragem da OS no card (12/11/2026)
+
+O km lido da OS do Onmotor (`kb_cards.km`) agora aparece em mais lugares, no formato "96.361 km":
+- no card do quadro, ao lado do mecânico;
+- no card grande do setor e da aprovação;
+- no topo do card aberto, ao lado da fase.
+
+Vazio ou "0" é tratado como não informado: no quadro não aparece nada, e no card aberto aparece "km não informada na OS". `/estado` traz `km` em cada card.
