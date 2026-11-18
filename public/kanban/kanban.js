@@ -180,7 +180,7 @@
         ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
-      ${!c.os_finalizada_em && c.os_sumiu_em ? '<span class="kb-selo kb-selo-sumiu">Saiu da Novidades do Onmotor</span>' : ''}
+      ${!c.os_finalizada_em && c.os_sumiu_em ? '<span class="kb-selo kb-selo-sumiu">Saiu da lista de OS do Onmotor (Pátio)</span>' : ''}
       ${KF.botaoAprovado(c, 'kb-card-aprovado')}
     </div>`;
   }

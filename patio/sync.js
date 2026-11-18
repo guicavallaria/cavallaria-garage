@@ -4,6 +4,8 @@
 // → log. Fonte que falha é registrada como aviso e seus veículos ficam intactos;
 // só quando TODAS falham a rodada conta como erro. Nunca "zera" o pátio.
 const { OnmotorClient } = require('./onmotor');
+const { OnmotorApiClient } = require('./onmotor-api');
+const { tipoDaFonte, baseDaFonte } = require('./fontes-onmotor');
 const { parseNovidades, texto } = require('./parser');
 const { aplicarSync } = require('./reconciliar');
 const { reconciliarAgendaHoje } = require('./agenda');
@@ -14,16 +16,18 @@ const MAX_DETALHES_POR_SYNC = 15; // cada detalhe é um GET de ~350 KB na págin
 
 // Fontes lidas. As duas usam as mesmas credenciais (ONMOTOR_USER/PASS).
 function fontes(env = process.env) {
-  const lista = [{ nome: 'cavallaria', baseUrl: env.ONMOTOR_BASE_URL || 'https://cavallaria.onmotor.com.br' }];
-  if (env.PATIO_AWDYNA_ENABLED !== 'false') {
-    lista.push({ nome: 'awdyna', baseUrl: env.ONMOTOR_AWDYNA_BASE_URL || 'https://awdyna.onmotor.com.br' });
-  }
+  const fonte = (nome) => ({ nome, tipo: tipoDaFonte(nome, env), baseUrl: baseDaFonte(nome, env) });
+  const lista = [fonte('cavallaria')];
+  if (env.PATIO_AWDYNA_ENABLED !== 'false') lista.push(fonte('awdyna'));
   return lista;
 }
 
 function clientesPadrao(log) {
   const map = new Map();
-  for (const f of fontes()) map.set(f.nome, new OnmotorClient({ nome: f.nome, baseUrl: f.baseUrl, log }));
+  for (const f of fontes()) {
+    const Cliente = f.tipo === 'api' ? OnmotorApiClient : OnmotorClient;
+    map.set(f.nome, new Cliente({ nome: f.nome, baseUrl: f.baseUrl, log }));
+  }
   return map;
 }
 
@@ -32,6 +36,14 @@ function extrairVeiculoDaOS(html) {
   const sel = (String(html || '').match(/<select[^>]*id="ipt_id_veiculo"[\s\S]*?<\/select>/) || [])[0] || '';
   const opt = (sel.match(/<option[^>]*\bselected\b[^>]*>([\s\S]*?)<\/option>/) || sel.match(/<option[^>]*>([\s\S]*?)<\/option>/) || [])[1] || '';
   return parseVeiculoOnmotor(texto(opt));
+}
+
+// Ano/cor/modelo do veículo da OS: Onmotor novo (API) ou página da OS do antigo.
+async function veiculoPatio(client, osId) {
+  if (!client.veiculoDaOS) return extrairVeiculoDaOS(await client.osHtml(osId));
+  const v = await client.veiculoDaOS(osId);
+  const ano = v.anoFabricacao && v.anoModelo && v.anoFabricacao !== v.anoModelo ? `${v.anoFabricacao}/${v.anoModelo}` : (v.anoModelo || v.anoFabricacao || '');
+  return { ano, cor: v.cor, marcaModelo: [v.fabricante, v.modelo].filter(Boolean).join(' ') };
 }
 
 // Completa ano/cor dos veículos ativos ainda sem detalhes, lendo a OS na empresa de origem.
@@ -49,7 +61,7 @@ async function enriquecerDetalhes(db, clientes, { limite = MAX_DETALHES_POR_SYNC
     const client = clientes.get(p.empresa || 'cavallaria');
     if (!client) { resultado.erros.push(`detalhes da OS ${p.os_id_interno}: fonte ${p.empresa} indisponível`); continue; }
     try {
-      const v = extrairVeiculoDaOS(await client.osHtml(p.os_id_interno));
+      const v = await veiculoPatio(client, p.os_id_interno);
       upd.run(v.ano, v.cor, v.marcaModelo, p.id);
       resultado.ok++;
     } catch (e) {
@@ -66,7 +78,7 @@ async function lerFontes(clientes) {
   const falhas = [];
   for (const [nome, client] of clientes) {
     try {
-      const lido = parseNovidades(await client.novidadesHtml());
+      const lido = client.lerNovidades ? await client.lerNovidades() : parseNovidades(await client.novidadesHtml());
       if (!lido.ok) throw new Error('página da Novidades inválida: ' + lido.problemas.join('; '));
       for (const os of lido.emExecucao) lista.push({ ...os, empresa: nome });
       lidas.push({ nome, os: lido.emExecucao.length });

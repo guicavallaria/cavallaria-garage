@@ -27,11 +27,25 @@ const { registrar: registrarAuditoria } = require('../acesso/auditoria');
 const { parseNovidades } = require('../patio/parser');
 const { formatarPlaca } = require('../patio/placa');
 const { dentroDaJanela } = require('../patio/tz');
-const { buscarDetalhesOS, extrairDadosOS, anoVeiculo } = require('./onmotor-os');
+const { buscarDetalhesOS, extrairDadosOS, anoVeiculo, normalizarChassi } = require('./onmotor-os');
 const { spParaUtc, formatarBR } = require('./datas');
 const { dadosEmpresa } = require('./empresa');
 
 const EMPRESA_PADRAO = 'cavallaria';
+
+// Duas fontes com a mesma cara: o Onmotor novo (API JSON, patio/onmotor-api.js) já entrega tudo
+// pronto; o antigo (HTML, patio/onmotor.js — AWDYNA até migrar) e o mock passam pelos parsers.
+async function lerNovidades(client) {
+  return client.lerNovidades ? client.lerNovidades() : parseNovidades(await client.novidadesHtml());
+}
+async function situacaoDaOS(client, osId) {
+  return client.situacaoOS ? client.situacaoOS(osId) : extrairDadosOS(await client.osHtml(osId));
+}
+async function veiculoDaOS(client, osId) {
+  if (!client.veiculoDaOS) return buscarDetalhesOS(client, osId);
+  const { km, ...v } = await client.veiculoDaOS(osId);
+  return { veiculo: { ...v, chassi: normalizarChassi(v.chassiInformado) } };
+}
 const LIMITE_DETALHES = 15;        // cada detalhe = página da OS (~0,4–1 MB) + modal do veículo
 const LIMITE_SUMIDAS = 5;          // OS sumidas conferidas por rodada
 const REVERIFICAR_SUMIDA_MIN = 60; // uma OS sumida e não finalizada é conferida de novo a cada 1 h
@@ -158,7 +172,7 @@ function aplicarLeitura(db, linhas, { agora, primeiraCarga, empresa = EMPRESA_PA
       const volta = card.arquivado_em && card.arquivado_motivo === 'automatico';
       db.prepare(`UPDATE kb_cards SET os_inativada_em = NULL${volta ? ", arquivado_em = NULL, arquivado_por = NULL, arquivado_motivo = NULL" : ''}, atualizado_em = ? WHERE id = ?`).run(agora, card.id);
       if (volta) {
-        f.evento(card.id, 'desarquivado', `OS voltou para a Novidades do Onmotor (reativada) — card desarquivado em ${formatarBR(agora)}`, { motivo: 'os_reativada' }, agora);
+        f.evento(card.id, 'desarquivado', `OS voltou para a Pátio/Novidades do Onmotor (reativada) — card desarquivado em ${formatarBR(agora)}`, { motivo: 'os_reativada' }, agora);
         r.reativados = (r.reativados || 0) + 1;
       }
     }
@@ -249,7 +263,7 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
     }
     conferidas++;
     try {
-      const os = extrairDadosOS(await client.osHtml(card.os_id_interno));
+      const os = await situacaoDaOS(client, card.os_id_interno);
       db.prepare('UPDATE kb_cards SET os_verificada_em = ? WHERE id = ?').run(agora, card.id);
       if (os.etapas.finalizado === true) {
         const atual = db.prepare('SELECT * FROM kb_cards WHERE id = ?').get(card.id);
@@ -260,7 +274,7 @@ async function conferirSumidas(db, client, vistos, { agora, limite = LIMITE_SUMI
         // Fora da Novidades sem ser finalizada = OS inativada no Onmotor: o card sai do quadro.
         db.prepare(`UPDATE kb_cards SET os_inativada_em = ?, arquivado_em = ?, arquivado_por = 'Sistema', arquivado_motivo = 'automatico',
             atualizado_em = ? WHERE id = ?`).run(agora, agora, agora, card.id);
-        f.evento(card.id, 'arquivado', `OS inativada no Onmotor (saiu da Novidades sem ser finalizada) — arquivado automaticamente em ${formatarBR(agora)}`,
+        f.evento(card.id, 'arquivado', `OS inativada no Onmotor (saiu da Pátio/Novidades sem ser finalizada) — arquivado automaticamente em ${formatarBR(agora)}`,
           { motivo: 'os_inativada' }, agora);
         registrarAuditoria(db, { operador: 'Sistema', acao: 'card_arquivado', cardId: card.id, entidade: 'cards', entidadeId: card.id, detalhes: { origem: 'os_inativada' }, quando: agora });
         inativados++;
@@ -306,7 +320,7 @@ async function enriquecerDetalhes(db, client, { agora, limite = LIMITE_DETALHES,
   let ok = 0;
   for (const card of pendentes) {
     try {
-      const { veiculo } = await buscarDetalhesOS(client, card.os_id_interno);
+      const { veiculo } = await veiculoDaOS(client, card.os_id_interno);
       const ano = anoVeiculo(veiculo);
       let veiculoId = null;
       if (veiculo.chassi) {
@@ -347,11 +361,11 @@ async function sincronizarKanban(db, { client, empresa = EMPRESA_PADRAO, agoraFn
       cards_finalizados = ?, cards_arquivados = ?, detalhes_lidos = ?, avisos = ?, erro = ? WHERE id = ?`);
   try {
     if (!client) throw new Error('fonte do Onmotor não configurada');
-    const lido = parseNovidades(await client.novidadesHtml());
-    if (!lido.ok) throw new Error('página da Novidades inválida: ' + lido.problemas.join('; '));
+    const lido = await lerNovidades(client);
+    if (!lido.ok) throw new Error('leitura da Pátio/Novidades inválida: ' + lido.problemas.join('; '));
 
     const ativos = db.prepare('SELECT COUNT(*) AS n FROM kb_cards WHERE empresa = ? AND arquivado_em IS NULL').get(empresa).n;
-    if (lido.linhas.length === 0 && ativos > 0) throw new Error('a Novidades veio sem nenhuma OS — leitura descartada');
+    if (lido.linhas.length === 0 && ativos > 0) throw new Error('a Pátio/Novidades veio sem nenhuma OS — leitura descartada');
 
     const agora = agoraFn();
     const primeiraCarga = !lerEstado(db, chaveCarga(empresa));
@@ -360,6 +374,7 @@ async function sincronizarKanban(db, { client, empresa = EMPRESA_PADRAO, agoraFn
       if (primeiraCarga) gravarEstado(db, chaveCarga(empresa), agora);
       return out;
     })();
+    if (lido.avisos && lido.avisos.length) r.avisos.push(...lido.avisos);
 
     const relato = [];
     const sumidas = await conferirSumidas(db, client, r.vistos, { agora, avisos: r.avisos, empresa, relato });

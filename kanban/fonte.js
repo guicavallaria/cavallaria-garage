@@ -3,6 +3,8 @@
 // e o mesmo cookie de sessão do pátio (conta de automação em ONMOTOR_USER/ONMOTOR_PASS).
 // KANBAN_AWDYNA_ENABLED=false tira a AWDYNA da leitura sem mexer nos cards que já existem.
 const { OnmotorClient } = require('../patio/onmotor');
+const { OnmotorApiClient } = require('../patio/onmotor-api');
+const { tipoDaFonte, baseDaFonte } = require('../patio/fontes-onmotor');
 const { OnmotorMock } = require('./onmotor-mock');
 
 function modoFonte(env = process.env) {
@@ -26,10 +28,10 @@ function criarClienteDe(empresa, { log = () => {}, env = process.env } = {}) {
     return new OnmotorMock({ log, ...(empresa === 'awdyna' ? { arquivo: env.KANBAN_MOCK_NOVIDADES_AWDYNA } : {}) });
   }
   if (!fonteConfigurada(env)) return null;
-  const baseUrl = empresa === 'awdyna'
-    ? env.ONMOTOR_AWDYNA_BASE_URL || 'https://awdyna.onmotor.com.br'
-    : env.ONMOTOR_BASE_URL || 'https://cavallaria.onmotor.com.br';
-  return new OnmotorClient({ nome: empresa, baseUrl, log });
+  const baseUrl = baseDaFonte(empresa, env);
+  return tipoDaFonte(empresa, env) === 'api'
+    ? new OnmotorApiClient({ nome: empresa, baseUrl, log })
+    : new OnmotorClient({ nome: empresa, baseUrl, log });
 }
 
 // Clientes novos por rodada: eles recarregam o cookie salvo, que o pátio também atualiza.

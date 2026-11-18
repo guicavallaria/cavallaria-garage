@@ -271,7 +271,7 @@ test('OS inativada no Onmotor (saiu da Novidades sem finalizar): arquiva sozinho
   assert.ok(c.os_inativada_em);
   assert.equal(c.arquivado_por, 'Sistema');
   assert.equal(r.arquivados, 1);
-  assert.match(eventos(db, c.id).at(-1).texto, /^OS inativada no Onmotor \(saiu da Novidades sem ser finalizada\) — arquivado automaticamente/);
+  assert.match(eventos(db, c.id).at(-1).texto, /^OS inativada no Onmotor \(saiu da Pátio\/Novidades sem ser finalizada\) — arquivado automaticamente/);
 
   // reativada: a OS volta para a Novidades e o card volta para o quadro, na mesma fase
   client.html = original;

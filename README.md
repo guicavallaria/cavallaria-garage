@@ -21,8 +21,11 @@ npm test               # testes (node:test, sem dependência extra)
 | `DATA_DIR` | no Railway: `/data` | pasta do SQLite, da sessão do WhatsApp e dos relatórios do pós-vendas (volume) |
 | `POSVENDAS_UPLOAD_TOKEN` | p/ pós-vendas | token do push dos relatórios semanais |
 | `CHROME_PATH` | definido no Dockerfile | Chrome usado pelo WhatsApp |
-| `ONMOTOR_USER` / `ONMOTOR_PASS` | p/ painel de pátio | conta do Onmotor usada pelo servidor (somente leitura da aba Novidades). **Nunca commitar.** |
-| `ONMOTOR_BASE_URL` | não | padrão `https://cavallaria.onmotor.com.br` |
+| `ONMOTOR_USER` / `ONMOTOR_PASS` | p/ painel de pátio e kanban | conta do Onmotor usada pelo servidor (somente leitura da Pátio/Novidades). **Nunca commitar.** |
+| `ONMOTOR_CAVALLARIA_TIPO` / `ONMOTOR_AWDYNA_TIPO` | não | `api` = Onmotor novo, `html` = antigo. Padrão: Cavallaria `api`, AWDYNA `html` (ver `docs/kanban-os/10-onmotor-novo.md`) |
+| `ONMOTOR_API_BASE_URL` | não | Onmotor novo da Cavallaria, padrão `https://cavallaria.onmotor.com` |
+| `ONMOTOR_DEVICE_CODE` | não | só se o Onmotor novo pedir código de verificação no login automático |
+| `ONMOTOR_BASE_URL` | não | sistema antigo (só com `TIPO=html`), padrão `https://cavallaria.onmotor.com.br` |
 | `PATIO_AWDYNA_ENABLED` | não | `false` desliga a 2ª fonte (AWDYNA). Padrão: ligada |
 | `ONMOTOR_AWDYNA_BASE_URL` | não | padrão `https://awdyna.onmotor.com.br` (mesmas credenciais) |
 | `PATIO_SYNC_ENABLED` | não | `false` desliga o job automático (o botão "Sincronizar agora" continua) |
@@ -33,7 +36,7 @@ npm test               # testes (node:test, sem dependência extra)
 
 Mostra, numa TV no pátio e na mesma tela da agenda, **quais veículos estão em serviço e quem é o responsável**.
 
-- **Fontes:** DOIS Onmotor com o mesmo login — Cavallaria (`cavallaria.onmotor.com.br`) e AWDYNA (`awdyna.onmotor.com.br`). As OS das duas entram no mesmo painel e no mesmo total, sem distinção visual; cada OS guarda a empresa de origem (`patio_vehicle_orders.empresa`). Se um dos sites falhar na leitura, os veículos dele ficam como estão (aviso no painel), nunca são finalizados por engano.
+- **Fontes:** DOIS Onmotor com o mesmo login — Cavallaria (Onmotor novo desde 18/11/2026, API JSON em `cavallaria.onmotor.com`, aba **Pátio**) e AWDYNA (sistema antigo, `awdyna.onmotor.com.br`, aba Novidades). As OS das duas entram no mesmo painel e no mesmo total, sem distinção visual; cada OS guarda a empresa de origem (`patio_vehicle_orders.empresa`). Se um dos sites falhar na leitura, os veículos dele ficam como estão (aviso no painel), nunca são finalizados por engano.
 - **Fonte da verdade:** Onmotor → Serviços → Novidades. Veículo no pátio = OS com data de entrada e sem finalização
   (lido pelos ícones de etapa de cada linha, não pela seção da página).
 - **Sincronização:** job in-process a cada 30 min, seg–sex 07:30–19:00 (SP), com lock em tabela para nunca rodar em
