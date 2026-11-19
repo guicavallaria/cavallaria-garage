@@ -43,7 +43,7 @@ function evento(db, cardId, tipo, texto, dados, operador, agora, midiaId = null)
 // Move o card. `faseAtual` (opcional) é a fase que a tela mostrava: se outra pessoa já moveu o
 // card, devolve 409 em vez de sobrescrever sem saber. `papel` vem do login (kanban/fluxo.js) e
 // as exigências da passagem (peças, PDF, aprovação, prazo) chegam nos demais campos.
-function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias }, { agora = agoraUtc() } = {}) {
+function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, retorno, separacao }, { agora = agoraUtc() } = {}) {
   const op = validarOperador(operador);
   const destino = Number(faseId);
   const nomeDestino = nomeFase(db, destino);
@@ -61,7 +61,14 @@ function moverCard(db, id, { faseId, faseAtual, operador, papel = 'total', pecas
 
     exigirPecasChegadas(db, c, destino);
     const origem = nomeFase(db, c.fase_id);
-    const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, agora });
+    const extra = aplicarExigencias(db, c, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, retorno, separacao, agora });
+    // Voltou para antes da Separação: a lista de peças dela é encerrada e fica no histórico do card
+    // (pedido feito que ainda não chegou continua no "Aguardando chegada").
+    const P = require('./pecas');
+    if (P.ANTES_DA_SEPARACAO.includes(destino)) {
+      const fim = P.encerrarSeparacao(db, c.id, { op, agora, motivo: `card voltou para ${nomeDestino}` });
+      if (fim) extra.texto = [extra.texto, `Separação de peças nº ${fim.numero} encerrada (fica no histórico do card).`].filter(Boolean).join('\n');
+    }
     // Mover libera o bloqueio de auto-arquivamento ligado pelo "Desarquivar". Prazo de peças só vale em Aguardando Peças.
     db.prepare(`UPDATE kb_cards SET fase_id = ?, fase_desde = ?, auto_arquivar_bloqueado = 0,
                 pecas_prazo_dias = ?, pecas_prazo_em = ?, atualizado_em = ? WHERE id = ?`)
@@ -155,7 +162,7 @@ const ultimasPecas = (db, cardId) => (db.prepare("SELECT pecas FROM kb_orcamento
 const orcamentoAberto = (db, cardId) => db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(cardId);
 const listaPecas = (pecas) => pecas.map((p) => `• ${p.descricao}`).join('\n');
 
-function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, agora }) {
+function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, pdfMidiaIds, opcaoAprovada, decisao, observacao, prazoDias, retorno, separacao, agora }) {
   const exige = fluxo.exigencias(card.fase_id, destino);
   const out = { texto: '', dados: {}, midiaId: null, prazo: null, eventosPdf: [] };
   const textos = [];
@@ -177,8 +184,7 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, pdfMidiaI
     }
     db.prepare('UPDATE kb_orcamentos SET decisao = ?, decisao_obs = ?, via_cliente_midia_id = ?, opcao_aprovada = ?, decidido_por = ?, decidido_em = ? WHERE id = ?')
       .run(decisao, obs, via ? via.id : null, opcao, op, agora, orc.id);
-    // peças do orçamento aprovado entram "a separar" para o compras (estoque / pedido)
-    require('./pecas').semearDaAprovacao(db, card, db.prepare('SELECT * FROM kb_orcamentos WHERE id = ?').get(orc.id), { op, agora });
+    // as peças "a separar" entram pela lista nova de separação, logo abaixo (exigência 'separacao')
     textos.push(decisao === 'integral'
       ? (opcao ? `Orçamento aprovado integralmente — o cliente escolheu o Orçamento ${opcao} (de ${opcoes.length} opções).` : 'Orçamento aprovado integralmente.')
       : 'Orçamento aprovado parcialmente — anexado o orçamento aprovado pelo cliente.');
@@ -188,7 +194,28 @@ function aplicarExigencias(db, card, destino, { op, pecas, pdfMidiaId, pdfMidiaI
     else if (opcao) out.midiaId = opcoes[opcao - 1]; // o PDF escolhido vai junto no registro
   }
 
-  if (exige.includes('pecas')) {
+  if (exige.includes('separacao')) {
+    // sem a escolha (cliente antigo da tela, API): migra as peças do orçamento aprovado, como antes
+    const s = separacao && typeof separacao === 'object' ? separacao : { modo: 'os' };
+    const nova = require('./pecas').iniciarSeparacao(db, card, { modo: s.modo, itens: s.itens, op, agora });
+    textos.push(nova.texto);
+    Object.assign(out.dados, { separacao_id: nova.id, separacao_numero: nova.numero, separacao_modo: nova.modo });
+  }
+
+  // Voltou de Separação em diante para o Orçamento: manter o orçamento mais recente (sem nova solicitação)
+  if (exige.includes('retorno') && retorno === 'manter') {
+    const ult = orcamentoAberto(db, card.id);
+    if (!ult) throw new ErroAcao(400, 'Este card não tem orçamento anterior: faça um novo pedido de orçamento', { exige: 'pecas' });
+    const obs = validarObservacao(observacao, false);
+    const quando = ult.enviado_em || ult.solicitado_em;
+    textos.push(`Voltou ao Orçamento mantendo o orçamento mais recente${quando ? ` (de ${formatarBR(quando)})` : ''}.`);
+    if (obs) textos.push(`Observação: ${obs}`);
+    Object.assign(out.dados, { retorno: 'manter', orcamento_id: ult.id, observacao: obs });
+  } else if (exige.includes('pecas')) {
+    if (exige.includes('retorno') && retorno !== undefined && retorno !== null && retorno !== 'novo') {
+      throw new ErroAcao(400, 'Escolha: manter o orçamento mais recente ou novo pedido de orçamento', { exige: 'retorno' });
+    }
+    if (exige.includes('retorno')) textos.push('Novo pedido de orçamento (demanda nova no serviço).');
     const lista = validarPecas(pecas);
     const obs = validarObservacao(observacao, exige.includes('observacao'));
     if (card.fase_id === fluxo.FASE.APROVACAO) {

@@ -63,7 +63,13 @@ const SQL_CARDS = `
          (SELECT o.opcao_aprovada FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_opcao,
          (SELECT o.id FROM kb_orcamentos o WHERE o.card_id = c.id ORDER BY o.id DESC LIMIT 1) AS orc_id,
          (SELECT json_group_array(json_object('id', p.id, 'descricao', p.descricao, 'situacao', p.situacao, 'desde', COALESCE(p.atualizado_em, p.criado_em)))
-            FROM (SELECT * FROM kb_pecas WHERE card_id = c.id AND removido_em IS NULL ORDER BY id) p) AS pecas_json
+            FROM (SELECT * FROM kb_pecas WHERE card_id = c.id AND removido_em IS NULL
+                    AND (situacao = 'pedido' OR separacao_id = (SELECT s.id FROM kb_separacoes s WHERE s.card_id = c.id AND s.encerrada_em IS NULL))
+                  ORDER BY id) p) AS pecas_json,
+         -- lista de separação aberta (Separação nº N) e quantas rodadas o card já teve
+         (SELECT s.numero FROM kb_separacoes s WHERE s.card_id = c.id AND s.encerrada_em IS NULL) AS sep_numero,
+         (SELECT s.modo FROM kb_separacoes s WHERE s.card_id = c.id AND s.encerrada_em IS NULL) AS sep_modo,
+         (SELECT COUNT(*) FROM kb_separacoes s WHERE s.card_id = c.id) AS qtd_separacoes
   FROM kb_cards c
   JOIN kb_fases f ON f.id = c.fase_id
   LEFT JOIN patio_vehicles pv ON pv.placa_normalizada = c.placa_normalizada AND pv.status = 'ativo'
@@ -111,6 +117,9 @@ function resumoCard(c) {
     } : null,
     // separação das peças do orçamento aprovado (kanban/pecas.js): estoque / para pedir / pedido / fora
     pecas: json(c.pecas_json) || [],
+    // lista de separação aberta (uma por entrada em Separação/Aquisição); null = nenhuma aberta
+    separacao: c.sep_numero ? { numero: c.sep_numero, modo: c.sep_modo } : null,
+    qtd_separacoes: c.qtd_separacoes || 0,
   };
 }
 
@@ -270,6 +279,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
         criado_em: c.criado_em,
       },
       orcamentos: orcamentosDoCard(c.id),
+      separacoes: pecas.historicoSeparacoes(db, c.id),
       eventos,
     });
   });
@@ -469,6 +479,7 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const out = acoes.moverCard(db, req.params.id, {
       faseId: b.fase_id, faseAtual: b.fase_atual, operador: b.operador, papel: fluxo.papelDoUsuario(db, req.session && req.session.usuario),
       pecas: b.pecas, pdfMidiaId: b.pdf_midia_id, pdfMidiaIds: b.pdf_midia_ids, opcaoAprovada: b.opcao_aprovada, decisao: b.decisao, observacao: b.observacao, prazoDias: b.prazo_dias,
+      retorno: b.retorno, separacao: b.separacao,
     });
     if (out.movido) broadcast('kanban');
     return { ok: true, movido: out.movido, arquivado: out.arquivado, card: porId(out.card.id) };
@@ -519,6 +530,43 @@ function criarRouter({ db, broadcast = () => {}, log = console.log, criarCliente
     const midia = orc ? (pecas.midiaAprovada(orc) || orc.pdf_midia_id) : null;
     const doPdf = (await arquivos.pecasDaMidia(db, storage, midia)).map((p) => ({ descricao: orcamentoPdf.descricaoDaPeca(p), codigo: p.codigo }));
     return { checklist: doChecklist, ultima_solicitacao: json(acoes.ultimasPecas(db, card.id)) || [], pdf: doPdf };
+  }, log));
+
+  // "Migrar peças da OS" (entrada na Separação/Aquisição, 18/11/2026): as peças lançadas na OS do
+  // Onmotor novo. Sem essa leitura (AWDYNA no sistema antigo, OS ainda com id antigo, Onmotor fora
+  // ou OS sem peças), as do PDF do orçamento aprovado e, sem PDF, as da solicitação de orçamento.
+  // `ja_separada` = número da separação anterior em que a peça já esteve (a tela deixa desmarcada).
+  r.get('/cards/:id/pecas-da-os', (req, res) => responder(res, async () => {
+    const card = db.prepare('SELECT * FROM kb_cards WHERE id = ?').get(Number(req.params.id));
+    if (!card) throw new acoes.ErroAcao(404, 'Card não encontrado');
+    let itens = [];
+    let fonte = null;
+    let aviso = null;
+    const cli = (clientesDaRodada({ log }).find((x) => x.empresa === card.empresa) || {}).client;
+    if (cli && typeof cli.pecasDaOS === 'function' && card.os_id_interno) {
+      try {
+        itens = await cli.pecasDaOS(card.os_id_interno);
+        fonte = 'onmotor';
+        if (!itens.length) aviso = 'A OS no Onmotor não tem peças lançadas.';
+      } catch (e) {
+        aviso = `Não consegui ler as peças da OS no Onmotor (${e.message}).`;
+      }
+    }
+    if (!itens.length) {
+      const orc = db.prepare("SELECT * FROM kb_orcamentos WHERE card_id = ? AND (pdf_midia_id IS NOT NULL OR via_cliente_midia_id IS NOT NULL) ORDER BY (decisao IN ('integral','parcial')) DESC, id DESC LIMIT 1").get(card.id);
+      const midia = orc ? (pecas.midiaAprovada(orc) || orc.pdf_midia_id) : null;
+      itens = (await arquivos.pecasDaMidia(db, storage, midia)).map((p) => ({ descricao: orcamentoPdf.descricaoDaPeca(p), aprovada: true }));
+      if (itens.length) fonte = 'pdf';
+    }
+    if (!itens.length) {
+      itens = (pecas.pecasDoOrcamentoAprovado(db, card).pecas || []).map((p) => ({ descricao: String(p.descricao || ''), aprovada: true })).filter((p) => p.descricao);
+      if (itens.length) fonte = 'orcamento';
+    }
+    const antes = new Map();
+    for (const s of pecas.historicoSeparacoes(db, card.id)) {
+      for (const i of s.itens) { const k = String(i.descricao).toLowerCase(); if (!antes.has(k)) antes.set(k, s.numero); }
+    }
+    return { fonte, aviso, itens: itens.map((i) => ({ ...i, ja_separada: antes.get(i.descricao.toLowerCase()) || null })) };
   }, log));
 
   // PDF do orçamento ou do orçamento aprovado pelo cliente (aprovação parcial): sobe antes do "mover", que o usa pelo midia_id.

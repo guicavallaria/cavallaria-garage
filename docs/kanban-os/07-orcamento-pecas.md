@@ -101,6 +101,11 @@ Código: `kanban/orcamento-pdf.js` (pdf.js da Mozilla, `pdfjs-dist`), migração
   Sem peças lidas no PDF, vale a lista da solicitação.
 - Janela "Separar peças": com a lista vazia, já vem com as peças do PDF; senão, botão **⇣ Trazer do PDF do
   orçamento (N)**. PDFs anexados antes desta versão são lidos do bucket na primeira vez que a janela abre.
+- **Onmotor novo (19/11/2026):** a Via Cliente do sistema novo mudou a tabela para **Informações das peças**
+  ("Peças · Qtd · Valor unitário · Total de venda"). A quantidade agora vem com ponto decimal ("6.1 LT") e às vezes
+  sem unidade ("2 R$ 810,00"). A leitura aceita os dois formatos; conferi em duas OS reais (7550 e 7546: 8 e 9 peças).
+  Os PDFs anexados desde a troca (17/11 à noite) tinham ficado com `pdf_pecas = '[]'`. A migração 020 os volta a
+  NULL, para serem lidos de novo do bucket.
 
 ## Editar e excluir peças pedidas para orçamento (12/11/2026)
 

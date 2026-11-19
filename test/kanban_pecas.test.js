@@ -98,8 +98,8 @@ test('migração 015: cards já aprovados no setor de peças ganham as peças "a
   const db = banco();
   const { card } = aprovado(db);
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 5), ['019_anexos_e_opcoes.js', '018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
-  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js', '019_anexos_e_opcoes.js']);
+  assert.deepEqual(reverter(db, undefined, 6), ['020_separacoes.js', '019_anexos_e_opcoes.js', '018_peca_chegou.js', '017_card_urgente.js', '016_pdf_pecas.js', '015_pecas_separacao.js']);
+  assert.deepEqual(aplicar(db), ['015_pecas_separacao.js', '016_pdf_pecas.js', '017_card_urgente.js', '018_peca_chegou.js', '019_anexos_e_opcoes.js', '020_separacoes.js']);
   assert.deepEqual(pecas.listar(db, card.id).map((p) => p.situacao), ['a_definir', 'a_definir', 'a_definir']);
 });
 
@@ -164,7 +164,8 @@ test('card que pula o Orçamento (Aquisição → Aprovação direto) não perde
   // solicitação antiga já vazia (como as criadas antes da correção): a aprovação busca a última com peças
   db.prepare("UPDATE kb_orcamentos SET pecas = '[]' WHERE id = (SELECT MAX(id) FROM kb_orcamentos WHERE card_id = ?)").run(card.id);
   db.prepare('UPDATE kb_pecas SET removido_em = ? WHERE card_id = ?').run(AGORA, card.id);
-  assert.equal(pecas.semearDaAprovacao(db, card, db.prepare('SELECT * FROM kb_orcamentos WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(card.id), { op: 'T', agora: AGORA }), 3);
+  assert.equal(pecas.pecasDoOrcamentoAprovado(db, card).pecas.length, 3);
+  pecas.iniciarSeparacao(db, card, { modo: 'os', op: 'T', agora: AGORA });
   assert.equal(JSON.parse(acoes.ultimasPecas(db, card.id)).length, 3);
   // peça trazida na janela de separação guarda a origem "orcamento"
   const r = pecas.salvar(db, card.id, { operador: 'Cauã', itens: [...pecas.listar(db, card.id).map((p) => ({ id: p.id, situacao: 'pedir' })), { descricao: 'Bucha', situacao: 'estoque', origem: 'orcamento' }] }, { agora: AGORA });
@@ -326,8 +327,8 @@ test('peça chegou: voltar do Aguardando Peças para trás continua livre; migra
   assert.equal(mover(db, card.id, F.AQUISICAO).card.fase_id, F.AQUISICAO);
   pecas.marcarChegadas(db, [a.id], { operador: 'Cauã' }, { agora: AGORA });
   const { reverter, aplicar } = require('../migrations');
-  assert.deepEqual(reverter(db, undefined, 2), ['019_anexos_e_opcoes.js', '018_peca_chegou.js']);
+  assert.deepEqual(reverter(db, undefined, 3), ['020_separacoes.js', '019_anexos_e_opcoes.js', '018_peca_chegou.js']);
   assert.equal(db.prepare('SELECT situacao FROM kb_pecas WHERE id = ?').get(a.id).situacao, 'pedido');
-  assert.deepEqual(aplicar(db), ['018_peca_chegou.js', '019_anexos_e_opcoes.js']);
+  assert.deepEqual(aplicar(db), ['018_peca_chegou.js', '019_anexos_e_opcoes.js', '020_separacoes.js']);
   assert.equal(pecas.listar(db, card.id).length, 3);
 });

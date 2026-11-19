@@ -225,7 +225,7 @@ test('opção depois do envio: só compras ou movimentação total', () => {
 test('migração 019 desfaz e refaz (sem anexos de arquivo)', () => {
   const db = bancoDeTeste();
   const { reverter, aplicar } = require('../migrations');
-  reverter(db); // a última é a 019
+  reverter(db, undefined, 2); // a 020 e a 019
   assert.ok(!db.prepare('PRAGMA table_info(kb_orcamentos)').all().some((c) => c.name === 'opcoes'));
   aplicar(db);
   assert.ok(db.prepare('PRAGMA table_info(kb_orcamentos)').all().some((c) => c.name === 'opcao_aprovada'));

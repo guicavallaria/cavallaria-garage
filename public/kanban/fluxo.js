@@ -111,7 +111,7 @@
       : temOpcoes(c) ? opcoesHtml(c.orcamento)
         : c.orcamento.pdf_url ? `<a class="kb-g-pdf" href="${esc(c.orcamento.pdf_url)}" target="_blank" rel="noopener">📄 Ver orçamento (PDF)</a>` : '';
     const acoes = acoesDoCard(ctx, c);
-    const separar = podeSeparar(ctx) && ([FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id) || (c.pecas || []).length) && c.fase_id !== FASE.APROVACAO
+    const separar = podeSeparar(ctx) && mostraSeparacao(c)
       ? `<button type="button" class="kb-botao${contarPecas(c).a_definir || !(c.pecas || []).length ? '' : ' kb-botao-sec'}" data-fluxo-separar="${c.id}">📦 Separar peças</button>` : '';
     return `<article class="kb-g-card${motivo && !c.urgente_em ? ' kb-piscar' : ''}${c.urgente_em ? ' kb-urgente' : ''}" data-abrir-card="${c.id}" tabindex="0" role="button"
         aria-label="${c.urgente_em ? 'Serviço urgente, ' : ''}OS ${esc(c.os_numero)}${motivo ? ` — ${esc(motivo)}` : ''}">
@@ -124,7 +124,7 @@
       <div class="kb-g-l2">${esc(veiculo || 'Veículo sem modelo')}${c.ano ? ` · ${esc(c.ano)}` : ''}${kmTexto(c.km) ? ` · <span title="Quilometragem registrada no check-in de entrada">${kmTexto(c.km)}</span>` : ''} · ${esc(c.primeiro_nome || 'Cliente')}</div>
       ${motivo ? `<div class="kb-g-alerta">⚠ ${esc(motivo)}</div>` : ''}
       ${resumoPrazo(c, agora)}
-      ${(c.pecas || []).length ? chipsPecas(c) + listaSeparacaoHtml(c, 6) : pecasHtml(c)}
+      ${mostraSeparacao(c) && (c.pecas || []).length ? chipsPecas(c) + listaSeparacaoHtml(c, 6) : pecasHtml(c) + aChegarHtml(c)}
       ${pdf}
       ${botaoAprovado(c)}
       ${acoes || separar ? `<div class="kb-g-acoes">${separar}${acoes}</div>` : ''}
@@ -162,6 +162,10 @@
     chegou: { rotulo: 'Peça chegou', curto: 'chegou', icone: '✅' },
     fora: { rotulo: 'Fora (não aprovada)', curto: 'fora', icone: '✕' },
   };
+  // As peças a separar só aparecem em Separação/Aquisição e Aguardando Peças (18/11/2026). Fora delas,
+  // só o aviso de pedido feito que ainda não chegou.
+  const mostraSeparacao = (c) => [FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id);
+  const aChegarHtml = (c) => { const n = contarPecas(c).pedido; return n ? `<div class="kb-pc-chips"><span class="kb-pc kb-pc-pedido" title="Pedido feito numa separação anterior, ainda não chegou">📦 ${n} a chegar</span></div>` : ''; };
   const ORDEM_SIT = ['pedir', 'a_definir', 'pedido', 'chegou', 'estoque', 'fora'];
   const podeSeparar = (ctx) => ['total', 'orcamento'].includes(((ctx.estado() || {}).eu || {}).papel || 'total');
   const contarPecas = (c) => {
@@ -185,25 +189,43 @@
       <span class="kb-pc kb-pc-${x.situacao}">${SIT[x.situacao].icone} ${SIT[x.situacao].rotulo}</span></li>`).join('')}${mais}</ul>`;
   }
   // Seção "Peças" do painel do card
-  function pecasPainelHtml(ctx, c) {
-    const lista = c.pecas || [];
+  // Seção "Peças" do painel do card: a lista de agora (só em Separação/Aquisição e Aguardando Peças)
+  // e o histórico das separações anteriores (cada volta ao Orçamento encerra uma lista).
+  function pecasPainelHtml(ctx, c, separacoes = []) {
     const pode = podeSeparar(ctx);
-    if (!lista.length && !(pode && [FASE.AQUISICAO, FASE.AGUARDANDO_PECAS].includes(c.fase_id))) return '';
     const n = contarPecas(c);
-    return `<h3 class="kb-sec">Peças — estoque e pedido</h3>
-      ${n.pedir ? `<p class="kb-sep-pendente">🛒 <strong>${n.pedir} peça(s) pendente(s) de pedido</strong></p>` : ''}
-      ${n.pedido ? `<p class="kb-sep-chegada">📦 <strong>${n.pedido} peça(s) com pedido feito, aguardando chegada</strong> — o card só segue para o Agendamento quando todas chegarem</p>` : ''}
-      ${n.a_definir ? `<p class="kb-sep-aviso">🧩 ${n.a_definir} peça(s) ainda a separar (estoque ou pedido)</p>` : ''}
-      ${listaSeparacaoHtml(c) || '<p class="kb-vazio">Nenhuma peça lançada.</p>'}
-      ${pode ? `<button type="button" class="kb-botao" data-fluxo-separar="${c.id}">📦 Separar peças (estoque / pedido)</button>` : ''}`;
+    const atual = c.separacao ? separacoes.find((s) => s.aberta) : null;
+    let html = '';
+    if (mostraSeparacao(c)) {
+      html = `<h3 class="kb-sec">Peças — ${c.separacao ? `Separação nº ${c.separacao.numero}` : 'estoque e pedido'}</h3>
+        ${atual ? `<p class="kb-modal-dica">${esc(atual.modo_texto)} · por ${esc(atual.iniciada_por || '')} em ${diaHora(atual.iniciada_em)}</p>` : ''}
+        ${n.pedir ? `<p class="kb-sep-pendente">🛒 <strong>${n.pedir} peça(s) pendente(s) de pedido</strong></p>` : ''}
+        ${n.pedido ? `<p class="kb-sep-chegada">📦 <strong>${n.pedido} peça(s) com pedido feito, aguardando chegada</strong> — o card só segue para o Agendamento quando todas chegarem</p>` : ''}
+        ${n.a_definir ? `<p class="kb-sep-aviso">🧩 ${n.a_definir} peça(s) ainda a separar (estoque ou pedido)</p>` : ''}
+        ${listaSeparacaoHtml(c) || '<p class="kb-vazio">Nenhuma peça lançada.</p>'}
+        ${pode ? `<button type="button" class="kb-botao" data-fluxo-separar="${c.id}">📦 Separar peças (estoque / pedido)</button>` : ''}`;
+    } else if (n.pedido) {
+      html = `<h3 class="kb-sec">Peças</h3><p class="kb-sep-chegada">📦 <strong>${n.pedido} peça(s) com pedido feito, aguardando chegada</strong> (de uma separação anterior)</p>`;
+    }
+    const antigas = separacoes.filter((s) => !s.aberta || !mostraSeparacao(c));
+    if (antigas.length) {
+      html += `<details class="kb-sep-hist"><summary>🗂 Separações anteriores (${antigas.length})</summary>${antigas.map((s) => `<div class="kb-orc kb-orc-antigo">
+          <div class="kb-orc-topo">Separação nº ${s.numero} · ${esc(s.modo_texto)}${s.iniciada_por ? ` · ${esc(s.iniciada_por)}` : ''} em ${diaHora(s.iniciada_em)}
+            ${s.encerrada_em ? `<span class="kb-orc-dec">Encerrada ${diaHora(s.encerrada_em)}</span>` : '<span class="kb-orc-dec">Aberta</span>'}</div>
+          ${s.itens.length ? `<ul class="kb-sep-lista">${s.itens.map((x) => `<li class="kb-sep-${x.situacao}"><span>${esc(x.descricao)}</span>
+            <span class="kb-pc kb-pc-${x.situacao}">${(SIT[x.situacao] || {}).icone || ''} ${(SIT[x.situacao] || {}).rotulo || esc(x.situacao)}</span></li>`).join('')}</ul>` : '<p class="kb-vazio">Lista vazia.</p>'}
+          ${s.encerrada_motivo ? `<p class="kb-orc-obs">${esc(s.encerrada_motivo)}${s.encerrada_por ? ` — ${esc(s.encerrada_por)}` : ''}</p>` : ''}
+        </div>`).join('')}</details>`;
+    }
+    return html;
   }
 
   // Painel do compras: todas as peças pendentes de pedido, por veículo.
   const haQuanto = (ms) => (ms < 60_000 ? 'agora' : `há ${dhm(ms)}`);
   const selecionadosPedido = new Set();
   function painelPedidos(ctx, cards, agora) {
-    const comPedir = cards.filter((c) => (c.pecas || []).some((p) => p.situacao === 'pedir'));
-    const aSeparar = cards.filter((c) => (c.pecas || []).some((p) => p.situacao === 'a_definir'));
+    const comPedir = cards.filter((c) => mostraSeparacao(c) && (c.pecas || []).some((p) => p.situacao === 'pedir'));
+    const aSeparar = cards.filter((c) => mostraSeparacao(c) && (c.pecas || []).some((p) => p.situacao === 'a_definir'));
     const total = comPedir.reduce((s, c) => s + contarPecas(c).pedir, 0);
     const pode = podeSeparar(ctx);
     const vivos = new Set(comPedir.flatMap((c) => c.pecas.filter((p) => p.situacao === 'pedir').map((p) => p.id)));
@@ -343,9 +365,20 @@
     return new Promise((resolve) => {
       let decisao = decisaoInicial || null;
       let opcao = null;
+      // volta ao Orçamento depois da aprovação: manter o orçamento mais recente ou novo pedido
+      const comRetorno = exige.includes('retorno');
+      let retorno = null;
+      const pedePecas = () => exige.includes('pecas') && (!comRetorno || retorno === 'novo');
+      // entrada em Separação/Aquisição: lista nova, migrada da OS ou informada à mão
+      let sepModo = null;
+      let sepOs = null; // { fonte, aviso, itens: [{descricao, aprovada, ja_separada, marcada}] }
+      let sepCarregando = false;
+      const sepManual = [];
       const titulo = exige.includes('aprovacao') ? 'Aprovação do orçamento'
         : devolucao ? 'Devolver ao Orçamento'
+          : comRetorno ? 'Voltar ao Orçamento'
           : exige.includes('pecas') ? 'Peças para o orçamento'
+          : exige.includes('separacao') ? 'Separação/Aquisição de peças'
             : exige.includes('orcamento_pdf') ? 'Enviar orçamento para aprovação'
               : 'Prazo das peças';
 
@@ -374,7 +407,20 @@
               </fieldset>`;
           }
         }
-        if (exige.includes('pecas')) {
+        if (comRetorno) {
+          const temOrc = Boolean(card.orcamento);
+          corpo += `<fieldset class="kb-opcoes"><legend>O que fazer com o orçamento?</legend>
+            <label><input type="radio" name="ret" value="manter" ${retorno === 'manter' ? 'checked' : ''} ${temOrc ? '' : 'disabled'}> <strong>Manter o orçamento mais recente</strong>
+              <small>${temOrc ? 'sem pedido novo: o último orçamento continua valendo' : 'este card ainda não tem orçamento'}</small></label>
+            <label><input type="radio" name="ret" value="novo" ${retorno === 'novo' ? 'checked' : ''}> <strong>Novo pedido de orçamento</strong>
+              <small>demanda nova no serviço: informe as peças a orçar</small></label>
+          </fieldset>
+          ${card.separacao ? `<p class="kb-modal-dica">A Separação nº ${card.separacao.numero} é encerrada e fica no histórico do card.</p>` : ''}`;
+        }
+        if (exige.includes('separacao')) corpo += separacaoHtml();
+        if (pedePecas()) {
+          const anteriores = comRetorno ? (sugestoes.ultima_solicitacao || []).filter((s) => !pecas.some((p) => p.descricao.toLowerCase() === String(s.descricao).toLowerCase())) : [];
+          if (anteriores.length) corpo += `<button type="button" class="kb-botao kb-botao-sec" data-trazer-ant>⇣ Trazer do orçamento anterior (${anteriores.length})</button>`;
           corpo += `<p class="kb-modal-dica">${devolucao ? 'As peças da solicitação anterior já estão na lista: ajuste se precisar.' : 'Informe as peças que o orçamento deve cotar. Obrigatório para todo card que entra em Orçamento.'}</p>
             <ul class="kb-lista-pecas">${listaPecasHtml()}</ul>
             ${faltam.length ? `<button type="button" class="kb-botao kb-botao-sec" data-trazer>⇣ Trazer do checklist (${faltam.length})</button>` : (sugestoes.checklist.length ? '' : '<p class="kb-modal-dica">Nenhuma peça marcada nos checklists deste card.</p>')}
@@ -402,6 +448,55 @@
             <button type="button" class="kb-botao kb-botao-sec" data-cancelar>Cancelar</button>
             <button type="submit" class="kb-botao">Confirmar e mover</button>
           </div></form>`;
+      }
+
+      // Separação/Aquisição: só duas opções; depois da escolha, a lista (marcar o que entra) ou a digitação
+      function separacaoHtml() {
+        const n = (card.qtd_separacoes || 0) + 1;
+        let h = `<fieldset class="kb-opcoes"><legend>Peças da Separação nº ${n}</legend>
+          <label><input type="radio" name="sep" value="os" ${sepModo === 'os' ? 'checked' : ''}> <strong>Migrar peças da OS</strong><small>traz as peças lançadas na OS do Onmotor</small></label>
+          <label><input type="radio" name="sep" value="manual" ${sepModo === 'manual' ? 'checked' : ''}> <strong>Informar manualmente</strong><small>digite as peças desta separação</small></label>
+        </fieldset>`;
+        if (sepModo === 'os') {
+          if (sepCarregando) h += '<p class="kb-modal-dica">⏳ Lendo as peças da OS no Onmotor (pode levar uns segundos)…</p>';
+          else if (sepOs) {
+            const FONTE = { onmotor: 'Peças lançadas na OS do Onmotor', pdf: 'Peças do PDF do orçamento aprovado', orcamento: 'Peças do pedido de orçamento' };
+            h += `${sepOs.aviso ? `<p class="kb-opc-aviso">⚠ ${esc(sepOs.aviso)}</p>` : ''}
+              ${sepOs.itens.length ? `<p class="kb-modal-dica">${FONTE[sepOs.fonte] || 'Peças'} — desmarque o que não entra nesta separação.</p>
+              <ul class="kb-lista-pecas kb-sep-os">${sepOs.itens.map((p, i) => `<li><label><input type="checkbox" data-sep-i="${i}" ${p.marcada ? 'checked' : ''}>
+                <span>${esc(p.descricao)}${p.aprovada ? '' : ' <small>não aprovada na OS</small>'}${p.ja_separada ? ` <small>já na Separação nº ${p.ja_separada}</small>` : ''}</span></label></li>`).join('')}</ul>`
+                : '<p class="kb-modal-dica">Nenhuma peça encontrada na OS. Escolha "Informar manualmente" ou siga com a lista vazia.</p>'}`;
+          }
+        }
+        if (sepModo === 'manual') {
+          h += `<ul class="kb-lista-pecas">${sepManual.length ? sepManual.map((d, i) => `<li><span>${esc(d)}</span>
+              <button type="button" class="kb-x" data-sep-tirar="${i}" aria-label="Tirar ${esc(d)}">✕</button></li>`).join('') : '<li class="kb-vazio">Nenhuma peça ainda (serviço sem peça: siga com a lista vazia).</li>'}</ul>
+            <div class="kb-add-peca"><input type="text" maxlength="300" placeholder="Peça (ex.: junta da tampa de válvulas)" data-sep-nova aria-label="Nova peça da separação">
+              <button type="button" class="kb-botao" data-sep-add>+ Adicionar</button></div>`;
+        }
+        if (card.qtd_separacoes) h += '<p class="kb-modal-dica">A lista anterior fica no histórico do card. Pedido feito que ainda não chegou segue na lista nova.</p>';
+        return h;
+      }
+      async function carregarPecasDaOs() {
+        if (sepOs || sepCarregando) return;
+        sepCarregando = true;
+        redesenhar();
+        try {
+          const r = await ctx.api(`/api/kanban/cards/${card.id}/pecas-da-os`);
+          sepOs = { fonte: r.fonte, aviso: r.aviso, itens: (r.itens || []).map((p) => ({ ...p, marcada: p.aprovada !== false && !p.ja_separada })) };
+        } catch (e) {
+          sepOs = { fonte: null, aviso: `Não consegui ler as peças da OS (${e.message}).`, itens: [] };
+        }
+        sepCarregando = false;
+        if (!m.hidden) redesenhar();
+      }
+      function adicionarSep() {
+        const inp = m.querySelector('[data-sep-nova]');
+        const d = inp.value.replace(/\s+/g, ' ').trim();
+        if (!d) { inp.focus(); return; }
+        if (!sepManual.some((x) => x.toLowerCase() === d.toLowerCase())) sepManual.push(d);
+        redesenhar();
+        m.querySelector('[data-sep-nova]').focus();
       }
 
       // guarda o que já foi digitado ao redesenhar a lista de peças
@@ -442,6 +537,11 @@
         if (b.hasAttribute('data-cancelar')) fechar(null);
         else if (b.hasAttribute('data-add')) adicionar();
         else if (b.hasAttribute('data-trazer')) { for (const s of doChecklistFaltando()) pecas.push({ descricao: s.descricao, origem: 'checklist' }); redesenhar(); }
+        else if (b.hasAttribute('data-trazer-ant')) {
+          for (const s of sugestoes.ultima_solicitacao || []) if (!pecas.some((p) => p.descricao.toLowerCase() === String(s.descricao).toLowerCase())) pecas.push({ descricao: s.descricao, origem: 'manual' });
+          redesenhar();
+        } else if (b.hasAttribute('data-sep-add')) adicionarSep();
+        else if (b.dataset.sepTirar !== undefined) { sepManual.splice(Number(b.dataset.sepTirar), 1); redesenhar(); }
         else if (b.dataset.tirar !== undefined) { pecas.splice(Number(b.dataset.tirar), 1); redesenhar(); }
         else if (b.hasAttribute('data-orc-mais')) {
           const lista = m.querySelector('[data-orc-lista]');
@@ -454,8 +554,12 @@
       m.onkeydown = (ev) => {
         if (ev.key === 'Escape') fechar(null);
         if (ev.key === 'Enter' && ev.target.matches('[data-nova]')) { ev.preventDefault(); adicionar(); }
+        if (ev.key === 'Enter' && ev.target.matches('[data-sep-nova]')) { ev.preventDefault(); adicionarSep(); }
       };
       m.onchange = (ev) => {
+        if (ev.target.name === 'ret') { retorno = ev.target.value; redesenhar(); return; }
+        if (ev.target.name === 'sep') { sepModo = ev.target.value; redesenhar(); if (sepModo === 'os') carregarPecasDaOs(); return; }
+        if (ev.target.dataset && ev.target.dataset.sepI !== undefined && sepOs) { sepOs.itens[Number(ev.target.dataset.sepI)].marcada = ev.target.checked; return; }
         if (ev.target.name === 'dec') {
           decisao = ev.target.value;
           const via = m.querySelector('[data-via]'); if (via) via.hidden = decisao !== 'parcial';
@@ -482,7 +586,19 @@
               extras.opcao_aprovada = opcao;
             }
           }
-          if (exige.includes('pecas')) {
+          if (comRetorno) {
+            if (!retorno) throw new Error('Escolha: manter o orçamento mais recente ou novo pedido de orçamento');
+            extras.retorno = retorno;
+          }
+          if (exige.includes('separacao')) {
+            if (!sepModo) throw new Error('Escolha: migrar as peças da OS ou informar manualmente');
+            if (sepModo === 'os' && sepCarregando) throw new Error('Aguarde a leitura das peças da OS');
+            const pend = ((m.querySelector('[data-sep-nova]') || {}).value || '').replace(/\s+/g, ' ').trim();
+            if (pend && !sepManual.some((x) => x.toLowerCase() === pend.toLowerCase())) sepManual.push(pend);
+            const itens = sepModo === 'os' ? ((sepOs && sepOs.itens) || []).filter((p) => p.marcada).map((p) => p.descricao) : sepManual;
+            extras.separacao = { modo: sepModo, itens: itens.map((descricao) => ({ descricao })) };
+          }
+          if (pedePecas()) {
             const pendente = ((m.querySelector('[data-nova]') || {}).value || '').trim();
             if (pendente) pecas.push({ descricao: pendente.replace(/\s+/g, ' '), origem: 'manual' });
             if (!pecas.length) throw new Error('Informe ao menos uma peça para o orçamento');
@@ -517,7 +633,7 @@
         } catch (e) {
           btn.disabled = false;
           btn.textContent = 'Confirmar e mover';
-          if (exige.includes('pecas')) redesenhar(e.message);
+          if (exige.some((x) => ['pecas', 'separacao', 'retorno'].includes(x))) redesenhar(e.message);
           else {
             const p = m.querySelector('.kb-erro-form') || Object.assign(document.createElement('p'), { className: 'kb-erro-form' });
             p.textContent = e.message;
@@ -548,9 +664,7 @@
     const faltando = (lista) => lista.filter((p) => p.descricao && !tem(p.descricao));
     const trazer = (lista, origem) => { for (const p of faltando(lista)) itens.push({ id: null, descricao: p.descricao, situacao: 'a_definir', origem }); };
     // lista vazia: já traz as peças do PDF do orçamento (Onmotor) ou, sem PDF lido, as da solicitação
-    const primeira = sug.pdf.length ? sug.pdf : sug.ultima_solicitacao;
-    const trouxe = !itens.length && faltando(primeira).length > 0 ? (sug.pdf.length ? 'pdf' : 'orc') : '';
-    if (!itens.length) trazer(primeira, 'orcamento');
+    const trouxe = ''; // a lista nasce na entrada da Separação (migrar da OS ou à mão): aqui só traz se pedir
     return new Promise((resolve) => {
       function fechar(valor) {
         m.hidden = true;
@@ -629,5 +743,5 @@
     });
   }
 
-  window.KanbanFluxo = { FASE, VISOES, kmTexto, nomeNoSetor, botaoAprovado, opcoesHtml, temOpcoes, enviarPdf, MAX_OPCOES, contarPecas, pecasPainelHtml, selecionadosPedido, selecionadosChegou, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
+  window.KanbanFluxo = { FASE, mostraSeparacao, VISOES, kmTexto, nomeNoSetor, botaoAprovado, opcoesHtml, temOpcoes, enviarPdf, MAX_OPCOES, contarPecas, pecasPainelHtml, selecionadosPedido, selecionadosChegou, separarPecas, dhm, motivoPiscar, alertasSetor, atrasadosAprovacao, renderSetor, coletar };
 })();

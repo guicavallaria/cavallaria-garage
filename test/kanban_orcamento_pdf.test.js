@@ -109,6 +109,24 @@ test('linhas do PDF → peças: código, descrição, quantidade e unidade; para
   assert.equal(orcamentoPdf.descricaoDaPeca(p[2]), 'PARAFUSO — 3');
 });
 
+// Linhas como saem da Via Cliente do Onmotor novo (desde 18/11/2026), conferidas em duas OS reais em 19/11.
+test('Onmotor novo: "Informações das peças", quantidade com ponto decimal e sem unidade', () => {
+  const p = orcamentoPdf.pecasDasLinhas([
+    'Informações dos serviços', 'Descrição Valor', 'A1 - Troca de óleo e filtro de óleo do motor R$ 150,00',
+    'Informações das peças', 'Peças Qtd Valor unitário Total de venda',
+    'A1.1 - MOTUL 8100 X-CESS GEN2 5W40 6.1 LT R$ 97,00 R$ 591,70',
+    'A2.4 - ABRAÇADEIRA DE PRESSÃO 12.3 2 UN R$ 5,00 R$ 10,00',
+    'B1.1 - BUCHA TRASEIRA DO AGREGADO OEM FORD 2 R$ 810,00 R$ 1.620,00',
+    'Total Serviço(s): R$ 150,00 Total Peça(s): R$ 858,70 Valor total: R$ 1.008,70',
+  ]);
+  assert.deepEqual(p.map(orcamentoPdf.descricaoDaPeca), [
+    'MOTUL 8100 X-CESS GEN2 5W40 — 6,1 LT',
+    'ABRAÇADEIRA DE PRESSÃO 12.3 — 2 UN',
+    'BUCHA TRASEIRA DO AGREGADO OEM FORD — 2',
+  ]);
+  assert.deepEqual(p.map((x) => x.codigo), ['A1.1', 'A2.4', 'B1.1']);
+});
+
 test('PDF real (gerado no formato do Onmotor) → peças', async () => {
   const p = await orcamentoPdf.pecasDoPdf(ORCAMENTO);
   assert.deepEqual(p.map(orcamentoPdf.descricaoDaPeca), ['FILTRO DE ÓLEO DO MOTOR MANN — 1 UN', 'MOTUL 8100 X-POWER 10W60 — 7 LT', 'JUNTA DO CAVALETE (ELRING) — 1,5 PC']);

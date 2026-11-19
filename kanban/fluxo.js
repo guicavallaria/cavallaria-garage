@@ -11,6 +11,8 @@
 //   entrar em Aprovação        → PDF do orçamento
 //   Aprovação → Aquisição      → aprovado integral, ou parcial com o PDF do orçamento aprovado pelo cliente
 //   Aprovação → Orçamento      → observação do motivo + peças (vêm as da solicitação anterior)
+//   Separação em diante → Orçamento → manter o orçamento mais recente, ou novo pedido (com as peças)
+//   entrar em Aquisição        → lista nova de separação: migrar peças da OS ou informar manualmente
 //   entrar em Aguardando Peças → prazo em dias para as peças chegarem
 const FASE = {
   ENTRADA: 1, DIAGNOSTICO: 2, ORCAMENTO: 3, APROVACAO: 4, AQUISICAO: 5,
@@ -55,11 +57,21 @@ function podeMover(papel, origem, destino, todas) {
 }
 
 // O que a passagem origem → destino exige (lista; vazia = nada).
+// Fases depois da aprovação: voltar delas para o Orçamento pergunta se mantém o orçamento mais
+// recente ou faz um novo pedido (serviço em execução que ganhou demanda nova, 18/11/2026).
+const POS_APROVACAO = [FASE.AQUISICAO, FASE.AGENDAMENTO, FASE.EXECUCAO, FASE.TESTE, FASE.PRONTO, FASE.AGUARDANDO_PECAS];
+
 function exigencias(origem, destino) {
   if (origem === destino) return [];
-  if (destino === FASE.ORCAMENTO) return origem === FASE.APROVACAO ? ['pecas', 'observacao'] : ['pecas'];
+  if (destino === FASE.ORCAMENTO) {
+    if (origem === FASE.APROVACAO) return ['pecas', 'observacao'];
+    return POS_APROVACAO.includes(origem) ? ['pecas', 'retorno'] : ['pecas'];
+  }
   if (destino === FASE.APROVACAO) return ['orcamento_pdf'];
-  if (origem === FASE.APROVACAO && destino === FASE.AQUISICAO) return ['aprovacao'];
+  // cada entrada em Separação/Aquisição abre uma lista nova: migrar da OS ou informar à mão.
+  // Voltar de Aguardando Peças continua a mesma lista (os pedidos estão em andamento).
+  if (origem === FASE.APROVACAO && destino === FASE.AQUISICAO) return ['aprovacao', 'separacao'];
+  if (destino === FASE.AQUISICAO) return origem === FASE.AGUARDANDO_PECAS ? [] : ['separacao'];
   if (destino === FASE.AGUARDANDO_PECAS) return ['prazo'];
   return [];
 }
@@ -76,5 +88,5 @@ function mensagemSemPermissao(papel, origem) {
 }
 
 module.exports = {
-  FASE, FASES_SETOR_PECAS, PAPEIS, papelDoUsuario, destinosPermitidos, podeMover, exigencias, mensagemSemPermissao,
+  FASE, FASES_SETOR_PECAS, POS_APROVACAO, PAPEIS, papelDoUsuario, destinosPermitidos, podeMover, exigencias, mensagemSemPermissao,
 };

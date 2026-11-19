@@ -1,8 +1,13 @@
 // Peças do PDF de orçamento do Onmotor (via do cliente / orçamento), pedido do Guilherme em 12/11/2026.
 //
-// O PDF do Onmotor tem a tabela "INFORMAÇÕES DE PEÇAS":
+// O PDF do Onmotor tem a tabela de peças. Sistema antigo (até 17/11/2026), "INFORMAÇÕES DE PEÇAS":
 //   Peça(s)                                   Qtd         Valor unit.  Valor total
 //   A5.2 - MOTUL 8100 X-POWER 10W60           7,00 LT     R$ 153,99    R$ 1.077,93
+// Sistema novo (desde 18/11/2026, Via Cliente), "Informações das peças": quantidade com ponto decimal
+// e, às vezes, sem unidade.
+//   Peças                                     Qtd         Valor unitário  Total de venda
+//   A1.1 - MOTUL 8100 X-CESS GEN2 5W40        6.1 LT      R$ 97,00        R$ 591,70
+//   B1.1 - BUCHA TRASEIRA DO AGREGADO         2           R$ 810,00       R$ 1.620,00
 // Lemos o texto com o pdf.js (Mozilla), remontamos as linhas pela posição na página e tiramos
 // código, descrição, quantidade e unidade de cada peça. Nada do cliente sai daqui: só as peças.
 const MAX_BYTES = 30 * 1024 * 1024;
@@ -43,19 +48,21 @@ async function linhasDoPdf(bytes) {
 const RX_PECA = /^([A-Z]{0,3}\d+(?:\.\d+)+)\s*-\s*(.+?)\s+(\d{1,6}(?:[.,]\d{1,3})?)\s+([A-Za-zÀ-ú.]{1,12})\s+R\$\s*[\d.]+,\d{2}\s+R\$\s*[\d.]+,\d{2}$/;
 const RX_PECA_SEM_UNIDADE = /^([A-Z]{0,3}\d+(?:\.\d+)+)\s*-\s*(.+?)\s+(\d{1,6}(?:[.,]\d{1,3})?)\s+R\$\s*[\d.]+,\d{2}\s+R\$\s*[\d.]+,\d{2}$/;
 
+// "7,00" (antigo: vírgula decimal, ponto de milhar) ou "6.1" (novo: ponto decimal).
 const qtdTexto = (q) => {
-  const n = Number(String(q).replace(/\./g, '').replace(',', '.'));
+  const t = String(q);
+  const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
   return Number.isFinite(n) ? String(Math.round(n * 1000) / 1000).replace('.', ',') : String(q);
 };
 
-// Das linhas do PDF para as peças: só o trecho entre "INFORMAÇÕES DE PEÇAS" e o rodapé de totais.
+// Das linhas do PDF para as peças: só o trecho entre o título da tabela de peças e o rodapé de totais.
 function pecasDasLinhas(linhas) {
   const out = [];
   let dentro = false;
   for (const linha of linhas) {
-    if (/INFORMA[ÇC][ÕO]ES DE PE[ÇC]AS/i.test(linha)) { dentro = true; continue; }
+    if (/INFORMA[ÇC][ÕO]ES D(?:E|AS) PE[ÇC]AS/i.test(linha)) { dentro = true; continue; }
     if (!dentro) continue;
-    if (/^Total Servi[çc]o|Valor total:|^INFORMA[ÇC][ÕO]ES DE /i.test(linha)) break;
+    if (/^Total Servi[çc]o|Valor total:|^INFORMA[ÇC][ÕO]ES D(?:E|OS|AS) /i.test(linha)) break;
     const m = linha.match(RX_PECA) || linha.match(RX_PECA_SEM_UNIDADE);
     if (!m) continue;
     const [, codigo, nome, qtd, unidade] = m;

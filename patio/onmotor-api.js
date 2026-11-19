@@ -199,6 +199,25 @@ class OnmotorApiClient {
       km: t(os.odometer) || t(v.odometer),
     };
   }
+
+  // Peças lançadas na OS (work_order.service_parts): "NOME (código de fábrica) — quantidade".
+  // `aprovada` = o Onmotor marca a peça como aprovada (approved = 1). Sem valores (custo/venda).
+  async pecasDaOS(uid) {
+    const os = await this.os(uid);
+    const lista = (os.work_order && os.work_order.service_parts) || [];
+    const t = (x) => (x === null || x === undefined ? '' : String(typeof x === 'object' && 'value' in x ? x.value ?? '' : x).replace(/\s+/g, ' ').trim());
+    return lista.map((p) => {
+      const nome = t(p && p.stock_name);
+      if (!nome) return null;
+      const cod = t(p.stock_factory_code);
+      const q = Number(t(p.quantity).replace(',', '.'));
+      const qtd = Number.isFinite(q) && q > 0 ? String(Math.round(q * 1000) / 1000).replace('.', ',') : '';
+      return {
+        descricao: `${nome}${cod && !nome.includes(cod) ? ` (${cod})` : ''}${qtd ? ` — ${qtd}` : ''}`.slice(0, 300),
+        aprovada: !(p.approved === 0 || p.approved === '0' || p.approved === false),
+      };
+    }).filter(Boolean);
+  }
 }
 
 const limparCacheDetalhes = () => cacheDetalhes.clear();

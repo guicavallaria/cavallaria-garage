@@ -174,9 +174,9 @@
         ${c.qtd_midias ? `<span title="Fotos, vídeos e áudios">📎 ${c.qtd_midias}</span>` : ''}
         ${c.vistoria_status === 'finalizado' ? '<span title="Vistoria de entrada feita">📋✓</span>' : ''}
         ${c.qtd_launch ? '<span title="Relatório Launch anexado">🔬</span>' : ''}
-        ${KF.contarPecas(c).pedir ? `<span class="kb-pc kb-pc-pedir" title="Peças pendentes de pedido">🛒 ${KF.contarPecas(c).pedir} p/ pedir</span>` : ''}
+        ${KF.mostraSeparacao(c) && KF.contarPecas(c).pedir ? `<span class="kb-pc kb-pc-pedir" title="Peças pendentes de pedido">🛒 ${KF.contarPecas(c).pedir} p/ pedir</span>` : ''}
         ${KF.contarPecas(c).pedido ? `<span class="kb-pc kb-pc-pedido" title="Peças com pedido feito, ainda não chegaram">📦 ${KF.contarPecas(c).pedido} a chegar</span>` : ''}
-        ${KF.contarPecas(c).a_definir ? `<span class="kb-pc kb-pc-a_definir" title="Peças do orçamento aprovado ainda não separadas">🧩 ${KF.contarPecas(c).a_definir} a separar</span>` : ''}
+        ${KF.mostraSeparacao(c) && KF.contarPecas(c).a_definir ? `<span class="kb-pc kb-pc-a_definir" title="Peças do orçamento aprovado ainda não separadas">🧩 ${KF.contarPecas(c).a_definir} a separar</span>` : ''}
         ${c.vistoria_status === 'em_andamento' ? '<span title="Vistoria de entrada em andamento">📋…</span>' : ''}
       </div>
       ${c.os_finalizada_em ? '<span class="kb-selo kb-selo-fin">OS finalizada no Onmotor</span>' : ''}
@@ -463,6 +463,7 @@
       cardAberto.card = dados.card;
       cardAberto.eventos = dados.eventos;
       cardAberto.orcamentos = dados.orcamentos || [];
+      cardAberto.separacoes = dados.separacoes || [];
       if (mesmo && $('kbLinhaTempo')) {
         renderCabecalho();
         renderOrcamentos();
@@ -588,7 +589,7 @@
     const el = $('kbOrcamentos');
     if (!el || !cardAberto) return;
     const lista = cardAberto.orcamentos || [];
-    const pecasHtml = cardAberto.card ? KF.pecasPainelHtml(ctxFluxo, cardAberto.card) : '';
+    const pecasHtml = cardAberto.card ? KF.pecasPainelHtml(ctxFluxo, cardAberto.card, cardAberto.separacoes || []) : '';
     if (!lista.length) { el.innerHTML = pecasHtml; return; }
     const DEC = { integral: 'Aprovado integralmente', parcial: 'Aprovado parcialmente', devolvido: 'Devolvido ao Orçamento' };
     el.innerHTML = `<h3 class="kb-sec">Orçamento${lista.length > 1 ? `s (${lista.length})` : ''}</h3>` + lista.map((o, i) => `
